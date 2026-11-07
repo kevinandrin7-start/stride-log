@@ -187,6 +187,21 @@ table.zt td:last-child{text-align:right;font-variant-numeric:tabular-nums}
 .shots{display:flex;gap:8px;overflow-x:auto}
 .shots img{height:150px;width:auto;border-radius:10px;border:1px solid var(--line);flex:none}
 .check input{width:20px;height:20px;margin-top:2px;accent-color:var(--accent)}
+.todo{display:flex;flex-direction:column;gap:2px}
+.todo .check{padding:12px 4px;border-bottom:1px solid var(--line);font-size:17px;cursor:pointer}
+.todo .check:last-child{border-bottom:0}
+.todo .check input{width:26px;height:26px;margin-top:0;flex:none}
+.todo .check .s{display:block;font-size:14px;color:var(--muted);margin-top:2px}
+.todo .check.on .t{text-decoration:line-through;opacity:.6}
+.cd{display:flex;align-items:baseline;gap:10px}
+.cd .num{font-size:64px;line-height:.9}
+.hist .li{cursor:default}
+.hrow{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line)}
+.hrow:last-child{border-bottom:0}
+.hrow .ic{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:14px;font-weight:700;flex:none;background:var(--surface-2);color:var(--muted)}
+.hrow .ic.done{background:var(--good,#22c55e);color:#fff}
+.hrow .ic.partial{background:var(--warn,#f59e0b);color:#fff}
+.hrow .ic.missed{background:transparent;border:1.5px solid var(--line)}
 @media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
 </style>
 </head>
@@ -202,7 +217,7 @@ table.zt td:last-child{text-align:right;font-variant-numeric:tabular-nums}
 </div>
 <nav class="tabs" aria-label="Sections"><div class="in">
   <button class="tab" data-tab="today"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Today</button>
-  <button class="tab" data-tab="plan"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Plan</button>
+  <button class="tab" data-tab="history"><svg viewBox="0 0 24 24"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>History</button>
   <button class="tab" data-tab="progress"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Progress</button>
   <button class="tab" data-tab="more"><svg viewBox="0 0 24 24"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</button>
 </div></nav>
@@ -573,41 +588,86 @@ function weekStrip(wk,today){
     return '<button class="dcell'+(d.date===today?" today":"")+'" data-day="'+d.date+'" aria-label="'+esc(nice(d.date,{dow:1})+": "+d.title)+'"><span class="dn">'+DOW[d.dow]+'</span><span class="dd">'+parse(d.date).getDate()+'</span><span class="dk">'+k+'</span><span class="dot '+(d.kind==="rest"||d.optional||d.kind==="strength"?(S.logs[d.date]?st:""):st)+'"></span></button>'}).join("")+'</div>';
 }
 function weekTitle(wk){return "Week "+wk.w+(wk.rep?" (repeat)":"")+(wk.tag?" · "+wk.tag:"")}
+function countdownHero(today){
+  const race=PLAN.milestones[2];const n=diffDays(today,race.date);
+  const nextM=PLAN.milestones.find(m=>m.date>=today&&m!==race);
+  const start=PLAN.days[0].date;const wk=currentWeek(today);
+  let sub=today<start?"Plan starts "+nice(start,{dow:1})+" · "+diffDays(today,start)+" day"+(diffDays(today,start)===1?"":"s"):wk?"Week "+wk.w+" of 30":"";
+  return '<section class="hero"><div class="eyebrow">Marathon · '+nice(race.date,{dow:1,year:1})+'</div>'+
+    (n>0?'<div class="cd"><span class="num">'+n+'</span><h2>day'+(n===1?"":"s")+' to go</h2></div>':n===0?'<h2>Race day!</h2>':'<h2>Marathon done</h2>')+
+    '<div class="chips">'+(sub?'<span class="chip">'+esc(sub)+'</span>':'')+(nextM?'<span class="chip">'+esc(nextM.name)+' in '+diffDays(today,nextM.date)+' days</span>':'')+'</div></section>';
+}
+function todoItems(d){
+  const it=[];
+  if(d.kind==="rest")return [{k:"main",t:"Rest day",s:"Recovery is where the fitness happens."}];
+  if(d.segs){
+    const sum=k=>d.segs.filter(x=>x[0]===k).reduce((a,x)=>a+x[1],0);
+    if(sum("warm"))it.push({k:"warm",t:"Warm-up walk "+sum("warm")+" min"});
+    it.push({k:"main",t:d.title,s:d.detail});
+    if(sum("cool"))it.push({k:"cool",t:"Cool-down walk "+sum("cool")+" min"});
+  }else it.push({k:"main",t:d.title,s:d.detail});
+  if(d.strength&&d.kind!=="strength")it.push({k:"strength",t:"Strength session",s:"20 to 30 min: calf raises, split squats, glute bridges, side planks."});
+  return it;
+}
+function checksOf(date){const l=S.logs[date];if(!l)return {};if(l.checks)return l.checks;
+  // older logs made before the checklist: treat a done log as all checked
+  if(l.status==="done"){const d=PLAN.byDate[date];const o={};if(d)todoItems(d).forEach(i=>{if(i.k!=="strength"||l.strength)o[i.k]=true});return o}
+  return {}}
+function todoList(d){
+  const c=checksOf(d.date);
+  return '<div class="todo">'+todoItems(d).map(i=>'<label class="check'+(c[i.k]?" on":"")+'"><input type="checkbox" data-todo="'+d.date+'|'+i.k+'"'+(c[i.k]?" checked":"")+'><span><span class="t">'+esc(i.t)+'</span>'+(i.s?'<span class="s">'+esc(i.s)+'</span>':'')+'</span></label>').join("")+'</div>';
+}
+function toggleTodo(date,k,on){
+  const d=PLAN.byDate[date];if(!d)return;
+  const items=todoItems(d);const prev=S.logs[date]||{};
+  const checks=Object.assign({},checksOf(date));if(on)checks[k]=true;else delete checks[k];
+  const n=items.filter(i=>checks[i.k]).length;
+  const hasDetails=prev.distance||prev.minutes||prev.avgHr||prev.watch||(prev.notes||"").trim();
+  if(!n&&!hasDetails){writeLog(date,null);return}
+  const status=n===items.length?"done":"partial";
+  const log=Object.assign({},prev,{checks,status:n?status:(prev.status||"partial"),planned:d.title,strength:!!(checks.strength||(d.kind==="strength"&&checks.main)),updatedAt:Date.now()});
+  if(log.pain==null)log.pain="none";
+  writeLog(date,log);
+  if(n===items.length&&on)toast(d.kind==="rest"?"Rest day done":"All done. Nice work!");
+}
 function renderToday(){
-  const today=todayStr();const start=PLAN.days[0].date;let h="";
+  const today=todayStr();const start=PLAN.days[0].date;let h=countdownHero(today);
   if(today<start){
-    const n=diffDays(today,start);const wk=PLAN.weeks[0];
-    h+='<section class="hero"><div class="eyebrow">Plan starts '+nice(start,{dow:1})+'</div><h2>'+n+' day'+(n===1?"":"s")+' to go</h2><div class="detail">Week 1 is four short run-walks. The first one is Tuesday, '+nice(addDays(start,1))+'.</div><div class="chips"><span class="chip">30 weeks</span><span class="chip">Race '+nice(PLAN.end,{year:1})+'</span></div></section>';
-    h+='<section class="card"><div class="eyebrow">Before you start</div>'+["Quick check-up with your doctor","Get fitted for running shoes","Chest-strap HR monitor (more accurate than wrist)","Find a 5K for "+nice(PLAN.milestones[0].date,{dow:1})].map((t,i)=>{const k="prep"+i;const on=S.logs["_prep"]&&S.logs["_prep"][k];return '<label class="check"><input type="checkbox" data-prep="'+k+'"'+(on?" checked":"")+'><span>'+esc(t)+'</span></label>'}).join("")+'</section>';
-    h+='<section class="card"><div class="row"><div class="eyebrow">Week 1 preview</div><span class="small muted">'+nice(wk.start)+'</span></div>'+weekStrip(wk,today)+'</section>';
+    const wk=PLAN.weeks[0];
+    h+='<section class="card"><div class="row"><div class="eyebrow">Week 1 preview</div><span class="small muted">Tap a day</span></div>'+weekStrip(wk,today)+'</section>';
     h+=dailyCard(today,1);
-    h+=milestonesCard(today);
     return h;
   }
-  if(today>PLAN.end){h+='<section class="hero"><div class="eyebrow">'+nice(PLAN.end,{year:1})+'</div><h2>Plan complete</h2><div class="detail">'+totals().mi+' miles logged across the plan.</div></section>';return h+milestonesCard(today)}
-  const d=PLAN.byDate[today];const wk=currentWeek(today);const l=S.logs[today];
-  const ph=PHASES[wk.phase-1];
-  h+='<section class="hero"><div class="eyebrow">'+nice(today,{dow:1})+' · '+esc(weekTitle(wk))+' · Phase '+wk.phase+'</div><h2>'+esc(d.title)+'</h2>';
-  if(d.detail)h+='<div class="detail">'+esc(d.detail)+'</div>';
-  h+='<div class="chips">'+dayChips(d)+'</div>';
-  if(l)h+='<div class="chips"><span class="chip '+(l.status==="skipped"?"bad":l.status==="partial"?"warn":"good")+'">'+esc(logSummary(l))+'</span></div>';
-  h+='<div class="btns">';
-  if(d.segs&&!l)h+='<button class="btn primary grow" data-timer="'+d.date+'">Start interval timer</button>';
-  if(RUNKINDS[d.kind]||d.kind==="strength"||d.kind==="cross"){
-    h+=l?'<button class="btn grow" data-log="'+d.date+'">Edit log</button>':'<button class="btn '+(d.segs?"":"primary ")+'grow" data-quick="'+d.date+'">Mark done</button><button class="btn grow" data-log="'+d.date+'">Log details</button>';
-  }else h+='<button class="btn grow" data-log="'+d.date+'">Log an extra activity</button>';
-  h+='</div></section>';
-  const cs=coach(today);
-  if(cs.length)h+='<section class="view" style="gap:8px">'+cs.map((c,i)=>'<div class="coach '+c.sev+'"><span class="sev">'+(c.sev==="good"?"✓":c.sev==="bad"?"!":c.sev==="warn"?"!":"i")+'</span><div class="body"><b>'+esc(c.t)+'</b><span class="small">'+esc(c.b)+'</span>'+(c.action?'<div><button class="btn small" data-coach="'+i+'">'+esc(c.action.label)+'</button></div>':'')+(c.day?'<div><button class="btn small" data-log="'+c.day+'">Log '+DOW[parse(c.day).getDay()]+'</button></div>':'')+'</div></div>').join("")+'</section>';
-  const st=weekStats(wk,today);const pct=Math.min(100,Math.round(st.vol/st.planned*100))||0;
-  h+='<section class="card"><div class="row"><div class="eyebrow">This week · '+nice(wk.start)+'</div><span class="small muted">'+st.done+'/'+st.runs+' runs · '+st.strDone+'/'+st.str+' strength</span></div>'+weekStrip(wk,today)+
-    '<div class="row"><span class="small"><span class="num" style="font-size:20px">'+st.vol+'</span> of '+st.planned+' '+wk.unit+'</span><span class="small muted">'+esc(wk.note)+'</span></div><div class="bar"><i style="width:'+pct+'%"></i></div></section>';
-  const t=totals();const s=streak(today);
-  h+='<section class="stats"><div class="stat"><span class="num">'+s+'</span><span class="lbl">Workout streak</span></div><div class="stat"><span class="num">'+t.mi+'</span><span class="lbl">Miles logged</span></div><div class="stat"><span class="num">'+wk.w+'<span class="muted" style="font-size:16px">/30</span></span><span class="lbl">'+esc(ph.name)+'</span></div></section>';
+  if(today>PLAN.end)return h;
+  const d=PLAN.byDate[today];const wk=currentWeek(today);
+  h+='<section class="card"><div class="row"><div class="eyebrow">Today · '+nice(today,{dow:1})+'</div>'+(d.segs?'<button class="btn small primary" data-timer="'+d.date+'">Interval timer</button>':'')+'</div>'+todoList(d)+'</section>';
+  const cs=coach(today).filter(c=>c.sev==="bad"||c.sev==="warn");
+  if(cs.length)h+='<section class="view" style="gap:8px">'+cs.map(c=>'<div class="coach '+c.sev+'"><span class="sev">!</span><div class="body"><b>'+esc(c.t)+'</b><span class="small">'+esc(c.b)+'</span></div></div>').join("")+'</section>';
+  const st=weekStats(wk,today);
+  h+='<section class="card"><div class="row"><div class="eyebrow">This week · '+esc(weekTitle(wk))+'</div><span class="small muted">'+st.done+'/'+st.runs+' runs</span></div>'+weekStrip(wk,today)+'</section>';
   h+=dailyCard(today,1);
-  const nxt=PLAN.days.filter(x=>x.date>today&&RUNKINDS[x.kind]).slice(0,3);
-  h+='<section class="card"><div class="eyebrow">Up next</div><div class="list">'+nxt.map(dayRow).join("")+'</div></section>';
-  h+=milestonesCard(today);
+  return h;
+}
+function renderHistory(){
+  const today=todayStr();
+  const weeks=PLAN.weeks.filter(w=>w.start<=today).reverse();
+  if(!weeks.length)return '<section class="card"><div class="eyebrow">History</div><div class="small muted">Nothing here yet. As you check things off each day, they show up here by day and week. Your plan starts '+nice(PLAN.days[0].date,{dow:1})+'.</div></section>';
+  let h='';
+  weeks.forEach(wk=>{
+    const days=wk.days.filter(d=>d.date<=today).slice().reverse();
+    const work=wk.days.filter(d=>d.kind!=="rest"&&!d.optional);
+    const done=work.filter(d=>{const l=S.logs[d.date];return l&&l.status==="done"}).length;
+    h+='<section class="card"><div class="row"><div class="eyebrow">'+esc(weekTitle(wk))+' · '+nice(wk.start)+' to '+nice(addDays(wk.start,6))+'</div><span class="small'+(done===work.length?'':' muted')+'">'+done+' of '+work.length+' done</span></div><div>';
+    days.forEach(d=>{
+      const l=S.logs[d.date];const items=todoItems(d);const c=checksOf(d.date);
+      const st=l?(l.status==="done"?"done":l.status==="skipped"?"missed":"partial"):(d.kind==="rest"||d.optional?"rest":d.date<today?"missed":"todo");
+      const icon=st==="done"?"✓":st==="partial"?"½":st==="rest"?"–":"";
+      const got=items.filter(i=>c[i.k]).map(i=>i.t);
+      const sub=got.length?got.join(" · "):st==="missed"?"Not done":st==="rest"?"Rest":"Still to do";
+      h+='<button class="hrow li" data-day="'+d.date+'" style="width:100%;text-align:left;background:none;border-left:0;border-right:0;border-top:0"><span class="ic '+st+'">'+icon+'</span><span class="meta"><span class="t">'+DOW[d.dow]+' '+parse(d.date).getDate()+' · '+esc(d.title)+'</span><span class="s">'+esc(sub)+'</span></span></button>';
+    });
+    h+='</div></section>';
+  });
   return h;
 }
 function dayRow(d){const today=todayStr();const st=statusOf(d,today);const l=S.logs[d.date];const dt=parse(d.date);
@@ -698,7 +758,7 @@ function renderMore(){
 }
 function render(){
   const app=$("#app");let h="";
-  try{h=tab==="today"?renderToday():tab==="plan"?renderPlan():tab==="progress"?renderProgress():renderMore()}catch(e){h='<div class="card">Something went wrong drawing this screen: '+esc(e.message)+'</div>'}
+  try{h=tab==="today"?renderToday():tab==="history"?renderHistory():tab==="progress"?renderProgress():renderMore()}catch(e){h='<div class="card">Something went wrong drawing this screen: '+esc(e.message)+'</div>'}
   app.innerHTML=h;
   document.querySelectorAll(".tab").forEach(b=>b.setAttribute("aria-current",b.dataset.tab===tab?"page":"false"));
 }
@@ -866,6 +926,7 @@ document.addEventListener("click",e=>{
 });
 document.addEventListener("change",e=>{
   const t=e.target;
+  if(t.dataset&&t.dataset.todo){const [dt,k]=t.dataset.todo.split("|");const lab=t.closest(".check");if(lab)lab.classList.toggle("on",t.checked);toggleTodo(dt,k,t.checked);return}
   if(t.dataset&&t.dataset.prep){const p=Object.assign({},S.logs["_prep"]||{});p[t.dataset.prep]=t.checked;p.updatedAt=Date.now();p.status="prep";writeLog("_prep",p);return}
   if(t.id==="setStart"){const v=t.value;if(!v)return;const d=parse(v);if(d.getDay()!==1){toast("Pick a Monday so weeks line up");t.value=S.settings.startDate;return}writeSettings({startDate:v});toast("Plan now starts "+nice(v))}
   if(t.id==="setMax"){const v=parseInt(t.value,10);if(v>=150&&v<=230){writeSettings({maxHr:v});toast("Zones updated")}}
@@ -875,12 +936,13 @@ document.addEventListener("change",e=>{
 });
 function repeatWeek(w){const r=(S.settings.repeats||[]).concat([w]);writeSettings({repeats:r});const end=buildPlan(Object.assign({},S.settings,{repeats:r})).end;toast("Week "+w+" repeats. Race day moves to "+nice(end))}
 function openDay(d){
-  if(!d)return;const today=todayStr();const l=S.logs[d.date];
-  if(RUNKINDS[d.kind]||d.kind==="strength"||l){
-    if(d.segs&&!l&&d.date<=addDays(today,0)&&d.date===today){openLog(d.date);return}
-    openLog(d.date);return}
-  const s=openSheet('<div class="eyebrow">'+nice(d.date,{dow:1,year:1})+' · Week '+d.w+'</div><h2>'+esc(d.title)+'</h2>'+(d.detail?'<div>'+esc(d.detail)+'</div>':'<div class="muted">Recovery is where the adaptation happens.</div>')+'<div class="btns"><button class="btn grow" id="xLog">Log an activity anyway</button><button class="btn" id="xClose">Close</button></div>');
-  s.querySelector("#xClose").onclick=closeSheet;s.querySelector("#xLog").onclick=()=>openLog(d.date);
+  if(!d)return;
+  const s=openSheet('<div class="eyebrow">'+nice(d.date,{dow:1,year:1})+' · Week '+d.w+'</div><h2>'+esc(d.title)+'</h2>'+todoList(d)+
+    '<div class="btns">'+(d.segs&&d.date===todayStr()?'<button class="btn primary grow" id="xTimer">Interval timer</button>':'')+'<button class="btn grow" id="xClose">Done</button></div>'+
+    '<div style="text-align:center"><button class="btn small ghost" id="xLog">Add details (optional)</button></div>');
+  s.querySelector("#xClose").onclick=closeSheet;
+  s.querySelector("#xLog").onclick=()=>openLog(d.date);
+  const tb=s.querySelector("#xTimer");if(tb)tb.onclick=()=>{closeSheet();openTimer(d.date)};
 }
 
 loadLocal();PLAN=buildPlan(S.settings);render();connect();
