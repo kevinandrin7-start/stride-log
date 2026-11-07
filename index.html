@@ -549,7 +549,8 @@ function streak(today){
 }
 function totals(){
   let mi=0,min=0,runs=0,longest=0,cal=0;
-  Object.values(S.logs).forEach(l=>{if(l.status==="skipped")return;const dm=+l.distance||0;mi+=dm;min+=+l.minutes||0;if(dm||l.minutes)runs++;if(dm>longest)longest=dm;if(l.watch&&l.watch.active_cal)cal+=+l.watch.active_cal});
+  Object.values(S.logs).forEach(l=>{if(l.status==="skipped")return;const dm=+l.distance||0;mi+=dm;min+=+l.minutes||0;if(dm||l.minutes)runs++;if(dm>longest)longest=dm;});
+  const st=PLAN.days[0].date;Object.keys(S.daily||{}).forEach(k=>{if(k>=st)cal+=+(S.daily[k].active_cal)||0});
   return {mi:Math.round(mi*10)/10,min:Math.round(min),runs,longest,cal:Math.round(cal)};
 }
 function coach(today){
@@ -631,6 +632,10 @@ function toggleTodo(date,k,on){
   const status=n===items.length?"done":"partial";
   const log=Object.assign({},prev,{checks,status:n?status:(prev.status||"partial"),planned:d.title,strength:!!(checks.strength||(d.kind==="strength"&&checks.main)),updatedAt:Date.now()});
   if(log.pain==null)log.pain="none";
+  if(RUNKINDS[d.kind]){
+    if(log.status==="done"&&!log.distance&&!log.minutes){log.distance=d.miles||null;log.minutes=d.minutes||null;log.est=true}
+    else if(log.status!=="done"&&log.est){log.distance=null;log.minutes=null;delete log.est}
+  }
   writeLog(date,log);
   if(n===items.length&&on)toast(d.kind==="rest"?"Rest day done":"All done. Nice work!");
 }
