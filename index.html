@@ -136,9 +136,13 @@ h1,h2,h3{margin:0;text-wrap:balance}
 .sheet h2{font:700 28px/1.05 var(--display);text-transform:uppercase}
 .field{display:flex;flex-direction:column;gap:6px;min-width:0}
 .field label,.field .lab{font-size:13px;font-weight:600;color:var(--muted)}
-.field input,.field select,.field textarea{width:100%;box-sizing:border-box;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:11px 12px;font-size:16px}
+.field input,.field select,.field textarea{width:100%;min-width:0;max-width:100%;box-sizing:border-box;min-height:46px;-webkit-appearance:none;appearance:none;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:11px 12px;font-size:16px}
 .field textarea{min-height:70px;resize:vertical}
 .grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.field input,.field select{height:46px}
+.field input[type=date],.field input[type=time]{display:block;text-align:left;line-height:22px}
+.field input::-webkit-date-and-time-value{text-align:left;margin:0}
+.field .val{min-height:46px;box-sizing:border-box;display:flex;align-items:center;padding:0 12px;border-radius:10px;background:var(--surface-2);font-weight:600;font-size:16px}
 .seg{display:flex;gap:6px;flex-wrap:wrap}
 .seg button{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:9px 12px;font-weight:600;font-size:14px}
 .seg button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
@@ -519,8 +523,8 @@ function renderAccount(){
   if(!db)return '<section class="card"><div class="eyebrow">Sync</div><div class="small muted">Sign in to sync your log, read watch screenshots and get workout reminders.</div><div class="btns"><button class="btn small primary" id="signInBtn">Sign in</button></div></section>';
   const pushOn=(()=>{try{return localStorage.getItem("stridelog.push")==="1"}catch(e){return false}})();
   h+='<section class="card"><div class="eyebrow">Workout reminders</div>'+
-    '<div class="small muted">A notification on your iPhone (and Apple Watch) on each workout day you haven\'t logged yet.</div>'+
-    '<div class="grid2"><div class="field"><label for="setRemind">Remind me at</label><input id="setRemind" type="time" value="'+esc(S.settings.remindTime||"")+'"></div><div class="field"><span class="lab">Status</span><div style="padding:11px 0;font-weight:600">'+(pushOn&&S.settings.remindTime?"On":"Off")+'</div></div></div>'+
+    '<div class="small muted">A notification on your iPhone (and Apple Watch) on each workout day you haven\'t checked off yet.</div>'+
+    '<div class="grid2"><div class="field"><label for="setRemind">Remind me at</label><input id="setRemind" type="time" value="'+esc(S.settings.remindTime||"")+'"></div><div class="field"><span class="lab">Status</span><div class="val">'+(pushOn&&S.settings.remindTime?"On":"Off")+'</div></div></div>'+
     '<div class="btns"><button class="btn small primary" id="pushBtn">'+(pushOn?"Re-connect this phone":"Turn on reminders")+'</button>'+(pushOn?'<button class="btn small" id="pushTest">Send a test</button>':'')+(S.settings.remindTime?'<button class="btn small" id="pushOff">Turn off</button>':'')+'</div></section>';
   h+='<section class="card"><div class="eyebrow">Nightly watch stats</div><div class="small muted">Your iPhone Shortcut sends steps, calories, distance and heart rate here each night. It needs this private link.</div><div class="btns"><button class="btn small" id="tokenBtn">Copy Shortcut link</button></div></section>';
   h+='<section class="card"><div class="eyebrow">Sync</div><div class="small">This phone is signed in and syncing.</div><div class="btns"><button class="btn small" id="signOutBtn">Sign out</button></div></section>';
@@ -744,8 +748,8 @@ function hrChart(today,Z){
 }
 function renderMore(){
   const Z=zones(S.settings.maxHr);const s=S.settings;
-  let h='<section class="card"><div class="eyebrow">Your plan</div><div class="grid2"><div class="field"><label for="setStart">Plan start (a Monday)</label><input id="setStart" type="date" value="'+esc(s.startDate)+'"></div><div class="field"><span class="lab">Race day</span><div style="padding:11px 0;font-weight:600">'+nice(PLAN.end,{dow:1,year:1})+'</div></div></div>'+
-    ((s.repeats||[]).length?'<div class="small muted">Repeated weeks: '+s.repeats.join(", ")+'. Each repeat moves race day back a week. The plan has room for about two.</div>':'<div class="small muted">If a week feels hard, repeat it from the Today screen or here. Each repeat moves race day back a week.</div>')+
+  let h='<section class="card"><div class="eyebrow">Your plan</div><div class="grid2"><div class="field"><label for="setStart">Plan start (a Monday)</label><input id="setStart" type="date" value="'+esc(s.startDate)+'"></div><div class="field"><span class="lab">Race day</span><div class="val">'+nice(PLAN.end,{dow:1,year:1})+'</div></div></div>'+
+    ((s.repeats||[]).length?'<div class="small muted">Repeated weeks: '+s.repeats.join(", ")+'. Each repeat moves race day back a week. The plan has room for about two.</div>':'<div class="small muted">If a week feels hard, repeat it here. Each repeat moves race day back a week.</div>')+
     '<div class="btns"><button class="btn small" id="repeatCur">Repeat current week</button></div></section>';
   h+='<section class="card"><div class="eyebrow">Heart rate</div><div class="grid2"><div class="field"><label for="setMax">Max HR (bpm)</label><input id="setMax" type="number" inputmode="numeric" min="150" max="230" value="'+esc(s.maxHr)+'"></div><div class="field"><label for="setRest">Resting HR (bpm)</label><input id="setRest" type="number" inputmode="numeric" min="30" max="100" placeholder="Optional" value="'+esc(s.restHr||"")+'"></div></div>'+
     '<table class="zt"><tbody>'+[["z1","Recovery","Walk breaks, warm-ups"],["z2","Aerobic base","Most runs, all long runs"],["z3","Tempo","Tempo, marathon pace"],["z4","Threshold","Intervals, sparingly"],["z5","Max","Strides only"]].map(r=>'<tr><td><span class="zsw" style="background:var(--'+r[0]+')"></span><b>Zone '+r[0][1]+'</b> '+r[1]+'<div class="small muted">'+r[2]+'</div></td><td>'+(r[0]==="z1"?"under "+(Z.z1[1]+1):Z[r[0]][0]+"–"+Z[r[0]][1])+'</td></tr>').join("")+'</tbody></table></section>';
