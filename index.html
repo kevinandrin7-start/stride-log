@@ -580,6 +580,7 @@ function renderToday(){
     h+='<section class="hero"><div class="eyebrow">Plan starts '+nice(start,{dow:1})+'</div><h2>'+n+' day'+(n===1?"":"s")+' to go</h2><div class="detail">Week 1 is four short run-walks. The first one is Tuesday, '+nice(addDays(start,1))+'.</div><div class="chips"><span class="chip">30 weeks</span><span class="chip">Race '+nice(PLAN.end,{year:1})+'</span></div></section>';
     h+='<section class="card"><div class="eyebrow">Before you start</div>'+["Quick check-up with your doctor","Get fitted for running shoes","Chest-strap HR monitor (more accurate than wrist)","Find a 5K for "+nice(PLAN.milestones[0].date,{dow:1})].map((t,i)=>{const k="prep"+i;const on=S.logs["_prep"]&&S.logs["_prep"][k];return '<label class="check"><input type="checkbox" data-prep="'+k+'"'+(on?" checked":"")+'><span>'+esc(t)+'</span></label>'}).join("")+'</section>';
     h+='<section class="card"><div class="row"><div class="eyebrow">Week 1 preview</div><span class="small muted">'+nice(wk.start)+'</span></div>'+weekStrip(wk,today)+'</section>';
+    h+=dailyCard(today,1);
     h+=milestonesCard(today);
     return h;
   }
