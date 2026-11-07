@@ -170,6 +170,12 @@ h1,h2,h3{margin:0;text-wrap:balance}
 .segs i.cur{outline:2px solid #fff}
 /* chart */
 .chart svg{display:block;width:100%;height:auto}
+.chart{position:relative}
+.chart .hd{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.chart .big{font:700 22px/1.1 var(--body);font-variant-numeric:tabular-nums}
+.chart .hit{fill:transparent;cursor:pointer}
+.ctip{position:absolute;pointer-events:none;background:var(--ink);color:var(--bg);font:600 12px/1.3 var(--body);padding:5px 8px;border-radius:8px;white-space:nowrap;transform:translate(-50%,-100%);z-index:2}
+.xh{pointer-events:none}
 .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
 .legend span{display:inline-flex;align-items:center;gap:6px}
 .legend i{width:12px;height:12px;border-radius:3px;display:inline-block}
@@ -551,7 +557,8 @@ function totals(){
   let mi=0,min=0,runs=0,longest=0,cal=0;
   Object.values(S.logs).forEach(l=>{if(l.status==="skipped")return;const dm=+l.distance||0;mi+=dm;min+=+l.minutes||0;if(dm||l.minutes)runs++;if(dm>longest)longest=dm;});
   const st=PLAN.days[0].date;Object.keys(S.daily||{}).forEach(k=>{if(k>=st)cal+=+(S.daily[k].active_cal)||0});
-  return {mi:Math.round(mi*10)/10,min:Math.round(min),runs,longest,cal:Math.round(cal)};
+  let steps=0;Object.values(S.daily||{}).forEach(d=>{steps+=+d.steps||0});
+  return {mi:Math.round(mi*10)/10,min:Math.round(min),runs,longest,cal:Math.round(cal),steps:Math.round(steps)};
 }
 function coach(today){
   const Z=zones(S.settings.maxHr),out=[];
@@ -703,14 +710,86 @@ function renderPlan(){
 function renderProgress(){
   const today=todayStr();const t=totals();const s=streak(today);const Z=zones(S.settings.maxHr);
   const due=PLAN.days.filter(d=>RUNKINDS[d.kind]&&d.date<=today);const done=due.filter(d=>{const l=S.logs[d.date];return l&&l.status!=="skipped"}).length;
-  let h='<section class="stats"><div class="stat"><span class="num">'+(due.length?Math.round(done/due.length*100):0)+'%</span><span class="lbl">Runs completed</span></div><div class="stat"><span class="num">'+s+'</span><span class="lbl">Current streak</span></div><div class="stat"><span class="num">'+t.longest+'</span><span class="lbl">Longest run (mi)</span></div></section>';
-  h+='<section class="stats"><div class="stat"><span class="num">'+t.mi+'</span><span class="lbl">Total miles</span></div><div class="stat"><span class="num">'+fmtMin(t.min)+'</span><span class="lbl">Total time</span></div><div class="stat"><span class="num">'+t.cal.toLocaleString()+'</span><span class="lbl">Active calories</span></div></section>';
+  let h='<section class="stats"><div class="stat"><span class="num">'+t.mi+'</span><span class="lbl">Total miles run</span></div><div class="stat"><span class="num">'+t.steps.toLocaleString()+'</span><span class="lbl">Total steps</span></div><div class="stat"><span class="num">'+fmtMin(t.min)+'</span><span class="lbl">Total run time</span></div></section>';
+  h+='<section class="stats"><div class="stat"><span class="num">'+(due.length?Math.round(done/due.length*100):0)+'%</span><span class="lbl">Runs completed</span></div><div class="stat"><span class="num">'+s+'</span><span class="lbl">Current streak</span></div><div class="stat"><span class="num">'+t.longest+'</span><span class="lbl">Longest run (mi)</span></div></section>';
+  const f1=v=>(Math.round(v*10)/10).toLocaleString(),f0=v=>Math.round(v).toLocaleString();
+  // cumulative miles
+  const lk=Object.keys(S.logs).filter(k=>k<=today&&S.logs[k].status!=="skipped"&&+S.logs[k].distance>0).sort();
+  let acc=0;const cm=lk.map(k=>({d:k,v:(acc+=+S.logs[k].distance)}));
+  if(cm.length)cm.unshift({d:addDays(cm[0].d,-1),v:0,skip:1});
+  h+=chartCard("Cumulative miles",t.mi+" mi",lineChart(cm,{fmt:v=>f1(v)+" mi",area:1,step:1,empty:"Check off or log a run to start your mileage line"}),"Every mile you've run since the plan started. A steeper line means a bigger week.");
+  // weekly volume
   h+='<section class="card chart"><div class="eyebrow">Weekly volume vs plan</div>'+volChart(today)+'<div class="legend"><span><i style="background:var(--surface-2);border:1px solid var(--line)"></i>Planned</span><span><i style="background:var(--accent)"></i>Logged</span><span class="muted">Weeks 1–8 in minutes, then miles</span></div></section>';
+  // steps
+  const dk=Object.keys(S.daily).filter(k=>k<=today&&+S.daily[k].steps>0).sort();
+  let sa=0;const cs=dk.map(k=>({d:k,v:(sa+=+S.daily[k].steps)}));
+  const last30=dk.filter(k=>diffDays(k,today)<30).map(k=>({d:k,v:+S.daily[k].steps}));
+  const avg=last30.length?Math.round(last30.reduce((a,p)=>a+p.v,0)/last30.length):0;
+  h+=chartCard("Daily steps",last30.length?f0(avg)+" avg":"",barChart(last30,today,{fmt:v=>f0(v)+" steps",empty:"Your nightly Shortcut fills this in"}),"The last 30 days, from your watch.");
+  if(cs.length>1)h+=chartCard("Cumulative steps",t.steps.toLocaleString(),lineChart(cs,{fmt:v=>f0(v)+" steps",area:1}),"Every step since you started syncing.");
+  // resting HR
+  const rk=Object.keys(S.daily).filter(k=>k<=today&&+S.daily[k].resting_hr>0).sort().map(k=>({d:k,v:+S.daily[k].resting_hr}));
+  h+=chartCard("Resting heart rate",rk.length?rk[rk.length-1].v+" bpm":"",lineChart(rk,{fmt:v=>f0(v)+" bpm",dots:1,pad:4,empty:"Shows up after your Shortcut sends resting HR"}),"Lower is fitter. A drop of a few bpm over the months is a great sign. A jump of 5+ for several days means rest.");
   h+='<section class="card chart"><div class="eyebrow">Easy-run heart rate</div>'+hrChart(today,Z)+'<div class="small muted">Average HR on easy and long runs. The band is your Zone 2, '+Z.z2[0]+' to '+Z.z2[1]+' bpm. Expect it to drift down as your base builds.</div></section>';
   h+=dailyCard(today,7);
   h+=milestonesCard(today);
   return h;
 }
+function chartCard(title,big,svg,note){return '<section class="card chart"><div class="hd"><div class="eyebrow">'+title+'</div>'+(big?'<div class="big">'+esc(big)+'</div>':'')+'</div>'+svg+'<div class="small muted">'+note+'</div></section>'}
+function niceMax(v){if(v<=0)return 1;const e=Math.pow(10,Math.floor(Math.log10(v))),m=v/e;return (m<=1?1:m<=2?2:m<=2.5?2.5:m<=5?5:10)*e}
+function shortNum(v){return v>=1e6?(Math.round(v/1e5)/10)+"M":v>=1e3?(Math.round(v/100)/10)+"k":String(Math.round(v*10)/10)}
+function chartEmpty(W,H,msg){return '<svg viewBox="0 0 '+W+' '+H+'" role="img"><line x1="0" x2="'+W+'" y1="'+(H-18)+'" y2="'+(H-18)+'" stroke="var(--line)"/><text x="'+(W/2)+'" y="'+(H/2)+'" text-anchor="middle" font-size="12" fill="var(--muted)">'+esc(msg||"No data yet")+'</text></svg>'}
+function lineChart(pts,o){
+  const W=340,H=140,pl=34,pr=8,pb=18,pt=10;
+  if(pts.filter(p=>!p.skip).length<1)return chartEmpty(W,H,o.empty);
+  const d0=pts[0].d,d1=pts[pts.length-1].d,span=Math.max(6,diffDays(d0,d1));
+  let lo=0,hi=niceMax(Math.max(...pts.map(p=>p.v)));
+  if(o.pad){const vs=pts.map(p=>p.v);lo=Math.floor((Math.min(...vs)-o.pad)/5)*5;hi=Math.ceil((Math.max(...vs)+o.pad)/5)*5}
+  const x=d=>pl+(diffDays(d0,d)/span)*(W-pl-pr),y=v=>(H-pb)-((v-lo)/(hi-lo||1))*(H-pb-pt);
+  let g='<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Line chart">';
+  [0,.5,1].forEach(f=>{const v=lo+(hi-lo)*f,yy=y(v);g+='<line x1="'+pl+'" x2="'+(W-pr)+'" y1="'+yy+'" y2="'+yy+'" stroke="var(--line)" stroke-width="1"/><text x="'+(pl-5)+'" y="'+(yy+3)+'" text-anchor="end" font-size="9" fill="var(--muted)">'+shortNum(v)+'</text>'});
+  g+='<text x="'+pl+'" y="'+(H-4)+'" font-size="9" fill="var(--muted)">'+nice(d0)+'</text><text x="'+(W-pr)+'" y="'+(H-4)+'" text-anchor="end" font-size="9" fill="var(--muted)">'+nice(addDays(d0,span))+'</text>';
+  let path="";pts.forEach((p,i)=>{const X=x(p.d),Y=y(p.v);if(!i)path+="M"+X+","+Y;else{if(o.step)path+="H"+X;path+="L"+X+","+Y}});
+  if(o.area&&pts.length>1)g+='<path d="'+path+'V'+y(lo)+'H'+x(d0)+'Z" fill="var(--accent)" opacity=".12"/>';
+  if(pts.length>1)g+='<path d="'+path+'" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>';
+  const real=pts.filter(p=>!p.skip);
+  if(o.dots||real.length<3)real.forEach(p=>{g+='<circle cx="'+x(p.d)+'" cy="'+y(p.v)+'" r="3" fill="var(--accent)" stroke="var(--surface)" stroke-width="1.5"/>'});
+  const last=real[real.length-1];g+='<circle cx="'+x(last.d)+'" cy="'+y(last.v)+'" r="4" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/>';
+  g+='<g class="xh" hidden><line y1="'+pt+'" y2="'+(H-pb)+'" stroke="var(--muted)" stroke-width="1" stroke-dasharray="2 2"/><circle r="4.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/></g>';
+  const xs=real.map(p=>x(p.d));
+  real.forEach((p,i)=>{const a=i?(xs[i-1]+xs[i])/2:pl,b=i<real.length-1?(xs[i]+xs[i+1])/2:W;g+='<rect class="hit" x="'+a+'" y="0" width="'+Math.max(1,b-a)+'" height="'+H+'" data-cx="'+xs[i]+'" data-cy="'+y(p.v)+'" data-tip="'+esc(nice(p.d,{dow:1})+" · "+o.fmt(p.v))+'"/>'});
+  return g+'</svg>';
+}
+function barChart(pts,today,o){
+  const W=340,H=140,pl=34,pr=8,pb=18,pt=10,n=30;
+  if(!pts.length)return chartEmpty(W,H,o.empty);
+  const d0=addDays(today,-(n-1)),hi=niceMax(Math.max(...pts.map(p=>p.v))),bw=(W-pl-pr)/n;
+  const y=v=>(H-pb)-(v/hi)*(H-pb-pt);
+  let g='<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Bar chart">';
+  [0,.5,1].forEach(f=>{const yy=y(hi*f);g+='<line x1="'+pl+'" x2="'+(W-pr)+'" y1="'+yy+'" y2="'+yy+'" stroke="var(--line)" stroke-width="1"/><text x="'+(pl-5)+'" y="'+(yy+3)+'" text-anchor="end" font-size="9" fill="var(--muted)">'+shortNum(hi*f)+'</text>'});
+  g+='<text x="'+pl+'" y="'+(H-4)+'" font-size="9" fill="var(--muted)">'+nice(d0)+'</text><text x="'+(W-pr)+'" y="'+(H-4)+'" text-anchor="end" font-size="9" fill="var(--muted)">'+nice(today)+'</text>';
+  g+='<g class="xh" hidden><line y1="'+pt+'" y2="'+(H-pb)+'" stroke="none"/><circle r="0"/></g>';
+  pts.forEach(p=>{const i=diffDays(d0,p.d);if(i<0)return;const X=pl+i*bw+1,w=Math.max(2,bw-2),Y=y(p.v),hgt=(H-pb)-Y;
+    g+='<path d="M'+X+','+(H-pb)+'V'+(Y+Math.min(3,hgt))+'q0,-'+Math.min(3,hgt)+' '+Math.min(3,w/2)+',-'+Math.min(3,hgt)+'H'+(X+w-Math.min(3,w/2))+'q'+Math.min(3,w/2)+',0 '+Math.min(3,w/2)+','+Math.min(3,hgt)+'V'+(H-pb)+'Z" fill="var(--accent)"/>';
+    g+='<rect class="hit" x="'+(pl+i*bw)+'" y="0" width="'+bw+'" height="'+H+'" data-cx="'+(X+w/2)+'" data-cy="'+Y+'" data-tip="'+esc(nice(p.d,{dow:1})+" · "+o.fmt(p.v))+'"/>'});
+  return g+'</svg>';
+}
+function chartHover(e){
+  const r=e.target.closest&&e.target.closest(".hit");const card=e.target.closest&&e.target.closest(".chart");
+  document.querySelectorAll(".ctip").forEach(t=>{if(!card||t.parentNode!==card)t.remove()});
+  document.querySelectorAll(".chart .xh").forEach(x=>{if(!card||!card.contains(x))x.setAttribute("hidden","")});
+  if(!r||!card)return;
+  const svg=r.ownerSVGElement,cx=+r.dataset.cx,cy=+r.dataset.cy,xh=svg.querySelector(".xh");
+  if(xh){xh.removeAttribute("hidden");const l=xh.querySelector("line"),c=xh.querySelector("circle");l.setAttribute("x1",cx);l.setAttribute("x2",cx);c.setAttribute("cx",cx);c.setAttribute("cy",cy)}
+  let tip=card.querySelector(".ctip");if(!tip){tip=document.createElement("div");tip.className="ctip";card.appendChild(tip)}
+  tip.textContent=r.dataset.tip;
+  const sb=svg.getBoundingClientRect(),cb=card.getBoundingClientRect(),k=sb.width/svg.viewBox.baseVal.width;
+  const px=sb.left-cb.left+cx*k,py=sb.top-cb.top+cy*k-10;
+  tip.style.top=Math.max(18,py)+"px";tip.style.left=px+"px";
+  const tw=tip.offsetWidth;tip.style.left=Math.min(cb.width-tw/2-6,Math.max(tw/2+6,px))+"px";
+}
+document.addEventListener("pointermove",chartHover);
+document.addEventListener("pointerdown",chartHover);
 function dailyCard(today,n){
   const keys=Object.keys(S.daily).filter(k=>k<=today).sort().reverse().slice(0,n);
   if(!keys.length)return n>1?'<section class="card"><div class="eyebrow">Daily activity from your watch</div><div class="small muted">Your nightly Shortcut fills this in: steps, active calories, distance and heart rate for each day.</div></section>':"";
