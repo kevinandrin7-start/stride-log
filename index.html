@@ -209,7 +209,6 @@ table.zt td:last-child{text-align:right;font-variant-numeric:tabular-nums}
 <input type="file" id="importFile" accept="application/json,.json" hidden>
 
 <script src="config.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 (function(){
 "use strict";
@@ -378,17 +377,23 @@ function loadLocal(){try{const r=JSON.parse(localStorage.getItem(LS)||"null");if
 function setSync(k){S.sync=k;const el=document.getElementById("sync");el.className="sync "+(k==="ok"?"ok":k==="local"?"local":"");
   el.querySelector("span").textContent=k==="ok"?"Synced":k==="local"?"This device only":k==="saving"?"Saving":"Loading"}
 const CFG=window.STRIDE_CONFIG||{};
-let sb=null,uid=null,canPush=false,visHooked=false;
-const SHOTURL={};
-const API=()=>String(CFG.supabaseUrl||"").replace(/\/$/,"")+"/functions/v1/api";
-async function authHeader(){const h={apikey:CFG.anonKey};try{const {data}=await sb.auth.getSession();if(data.session)h.Authorization="Bearer "+data.session.access_token}catch(e){}return h}
-async function upsertDoc(coll,id,data){const {error}=await sb.from("docs").upsert({user_id:uid,coll,id,data,updated_at:new Date().toISOString()});if(error)throw error}
+let tok=null,canPush=false,visHooked=false;
+try{tok=localStorage.getItem("stridelog.token")}catch(e){}
+const API=()=>String(CFG.apiUrl||"").replace(/\/$/,"");
+async function call(path,opt){opt=opt||{};const h=Object.assign({},opt.headers||{});if(tok)h.Authorization="Bearer "+tok;
+  const r=await fetch(API()+path,Object.assign({},opt,{headers:h}));
+  if(r.status===401&&tok){setToken(null);db=null;sampler=null;assets=null;canImg=false;setSync("local");render();showSignIn("Please sign in again.")}
+  return r}
+function setToken(t){tok=t;try{if(t)localStorage.setItem("stridelog.token",t);else localStorage.removeItem("stridelog.token")}catch(e){}}
+const docPath=(c,i)=>"/docs/"+encodeURIComponent(c)+"/"+encodeURIComponent(i);
+async function upsertDoc(coll,id,data){const r=await call(docPath(coll,id),{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});if(!r.ok)throw new Error("save failed")}
+async function getDocs(colls){const r=await call("/docs?coll="+colls.join(","));if(!r.ok)throw new Error("load failed");return (await r.json()).docs}
 async function writeLog(date,log){
   if(log)S.logs[date]=log;else delete S.logs[date];saveLocal();render();scheduleReminders();
   if(!db)return;
   try{setSync("saving");
     if(log)await upsertDoc("logs",date,log);
-    else{const {error}=await sb.from("docs").delete().match({user_id:uid,coll:"logs",id:date});if(error)throw error}
+    else{const r=await call(docPath("logs",date),{method:"DELETE"});if(!r.ok)throw 0}
     setSync("ok")}
   catch(e){setSync("local");toast("Saved on this phone. Sync will retry next time.")}
 }
@@ -398,11 +403,10 @@ async function writeSettings(patch){
   try{setSync("saving");await upsertDoc("settings","main",S.settings);setSync("ok")}catch(e){setSync("local")}
 }
 async function pull(){
-  if(!sb||!uid)return;
-  const {data,error}=await sb.from("docs").select("coll,id,data").in("coll",["logs","daily","settings"]);
-  if(error){setSync("local");return}
+  if(!db)return;
+  let rows;try{rows=await getDocs(["logs","daily","settings"])}catch(e){setSync("local");return}
   const remote={},daily={};let settings=null;
-  data.forEach(r=>{if(r.coll==="logs")remote[r.id]=r.data;else if(r.coll==="daily")daily[r.id]=r.data;else if(r.id==="main")settings=r.data});
+  rows.forEach(r=>{if(r.coll==="logs")remote[r.id]=r.data;else if(r.coll==="daily")daily[r.id]=r.data;else if(r.id==="main")settings=r.data});
   // push anything logged on this phone while offline
   const push=Object.keys(S.logs).filter(k=>!remote[k]||(S.logs[k].updatedAt||0)>(remote[k].updatedAt||0));
   for(const k of push){try{await upsertDoc("logs",k,S.logs[k]);remote[k]=S.logs[k]}catch(e){}}
@@ -412,37 +416,32 @@ async function pull(){
   saveLocal();setSync("ok");render();scheduleReminders();
 }
 async function connect(){
-  if(!CFG.supabaseUrl||!CFG.anonKey||!window.supabase){setSync("local");return}
-  sb=window.supabase.createClient(CFG.supabaseUrl,CFG.anonKey,{auth:{persistSession:true,autoRefreshToken:true}});
-  let session=null;try{session=(await sb.auth.getSession()).data.session}catch(e){}
-  if(!session){setSync("local");render();showSignIn();return}
-  await onSignedIn(session.user);
+  if(!CFG.apiUrl){setSync("local");return}
+  if(!tok){setSync("local");render();showSignIn();return}
+  await onSignedIn();
 }
-async function onSignedIn(user){
-  uid=user.id;S.email=user.email||"";db={};
-  sampler={json:readShots};canImg=true;assets={upload:uploadShot};
+async function onSignedIn(){
+  db={};sampler={json:readShots};canImg=true;assets={upload:uploadShot};
   canPush=("serviceWorker" in navigator)&&("PushManager" in window)&&("Notification" in window);
   if(!visHooked){visHooked=true;document.addEventListener("visibilitychange",()=>{if(!document.hidden)pull()})}
   await pull();
 }
 function showSignIn(msg){
-  if(!sb){toast("Sync isn't set up yet");return}
-  const s=openSheet('<div class="eyebrow">Stride Log account</div><h2>Sign in to sync</h2><div class="small muted">Your log, watch imports and workout reminders sync through your account.</div>'+(msg?'<div class="small" style="color:var(--bad)">'+esc(msg)+'</div>':'')+
-    '<div class="field"><label for="aEmail">Email</label><input id="aEmail" type="email" autocomplete="username" inputmode="email"></div>'+
-    '<div class="field"><label for="aPw">Password (6+ characters)</label><input id="aPw" type="password" autocomplete="current-password"></div>'+
-    '<div class="btns"><button class="btn primary grow" id="aIn">Sign in</button><button class="btn" id="aUp">Create account</button></div>');
-  const go=async up=>{
-    const email=s.querySelector("#aEmail").value.trim(),password=s.querySelector("#aPw").value;
-    if(!email||password.length<6){toast("Enter your email and a password of 6+ characters");return}
-    const r=up?await sb.auth.signUp({email,password}):await sb.auth.signInWithPassword({email,password});
-    if(r.error){toast(r.error.message);return}
-    if(!r.data.session){closeSheet();toast("Check your email to confirm, then sign in here.");return}
-    closeSheet();toast("Signed in");await onSignedIn(r.data.session.user)};
-  s.querySelector("#aIn").onclick=()=>go(false);s.querySelector("#aUp").onclick=()=>go(true);
+  if(!CFG.apiUrl){toast("Sync isn't set up yet");return}
+  const s=openSheet('<div class="eyebrow">Stride Log</div><h2>Sign in to sync</h2><div class="small muted">Use the app password you chose during setup. You only need to do this once on each device.</div>'+(msg?'<div class="small" style="color:var(--warn)">'+esc(msg)+'</div>':'')+
+    '<div class="field"><label for="aPw">App password</label><input id="aPw" type="password" autocomplete="current-password"></div>'+
+    '<div class="btns"><button class="btn primary grow" id="aIn">Sign in</button><button class="btn" id="aLater">Not now</button></div>');
+  s.querySelector("#aLater").onclick=closeSheet;
+  s.querySelector("#aIn").onclick=async()=>{
+    const password=s.querySelector("#aPw").value;if(!password){toast("Enter your app password");return}
+    try{const r=await fetch(API()+"/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password})});const j=await r.json().catch(()=>({}));
+      if(!r.ok){toast(j.error==="wrong_password"?"That password isn't right":"Couldn't sign in. Try again.");return}
+      setToken(j.token);closeSheet();toast("Signed in");await onSignedIn()}
+    catch(e){toast("Couldn't reach the server. Check your connection.")}};
 }
-async function signOut(){try{await sb.auth.signOut()}catch(e){}uid=null;db=null;sampler=null;assets=null;canImg=false;S.email="";setSync("local");render();toast("Signed out")}
+function signOut(){setToken(null);db=null;sampler=null;assets=null;canImg=false;setSync("local");render();toast("Signed out")}
 
-/* screenshots: shrink on the phone, read on the server, store privately */
+/* screenshots: shrink on the phone, read on the server */
 async function shrink(file){
   const url=URL.createObjectURL(file);
   try{const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=url});
@@ -455,34 +454,29 @@ async function shrink(file){
 const b64=blob=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(",")[1]);r.onerror=rej;r.readAsDataURL(blob)});
 async function readShots(prompt,opt){
   const images=[];for(const f of opt.images){const b=await shrink(f);images.push({type:"image/jpeg",data:await b64(b)})}
-  const res=await fetch(API()+"/read",{method:"POST",headers:Object.assign({"Content-Type":"application/json"},await authHeader()),body:JSON.stringify({prompt,images})});
+  const res=await call("/read",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt,images})});
   const j=await res.json().catch(()=>({}));
   if(!res.ok){const e=new Error(j.error||"api_error");e.code=j.error;throw e}
   return j.result;
 }
 async function uploadShot(file){
-  const b=await shrink(file);const path=uid+"/"+Date.now()+"-"+Math.random().toString(36).slice(2,8)+".jpg";
-  const {error}=await sb.storage.from("shots").upload(path,b,{contentType:"image/jpeg"});if(error)throw error;
-  return {id:path};
+  const b=await shrink(file);
+  const r=await call("/shots",{method:"POST",headers:{"Content-Type":"image/jpeg"},body:b});if(!r.ok)throw 0;
+  return {id:(await r.json()).id};
 }
-async function fillShots(){
-  if(!sb)return;const els=[...document.querySelectorAll("img[data-shot]")].filter(e=>!e.getAttribute("src"));
-  const ids=[...new Set(els.map(e=>e.dataset.shot))].filter(id=>!SHOTURL[id]);
-  if(ids.length){try{const {data}=await sb.storage.from("shots").createSignedUrls(ids,86400);(data||[]).forEach(r=>{if(r.signedUrl)SHOTURL[r.path]=r.signedUrl})}catch(e){}}
-  els.forEach(e=>{const u=SHOTURL[e.dataset.shot];if(u)e.src=u});
-}
+const shotUrl=id=>API()+"/shots/"+encodeURIComponent(id)+"?t="+encodeURIComponent(tok||"");
 
 /* reminders: the phone lists the next 3 weeks of sessions, the server pushes them */
 async function scheduleReminders(){
-  if(!sb||!uid)return;const t=S.settings.remindTime;const items=[];
+  if(!db)return;const t=S.settings.remindTime;const items=[];
   if(t){const [hh,mm]=t.split(":").map(Number);const today=todayStr();
     for(let i=0;i<21;i++){const ds=addDays(today,i);const d=PLAN.byDate[ds];
       if(!d||!(RUNKINDS[d.kind]||d.strength||d.kind==="strength")||S.logs[ds])continue;
       const dt=parse(ds);dt.setHours(hh,mm,0,0);if(dt.getTime()<Date.now()-60e3)continue;
       items.push({id:ds+"@"+t,at:dt.getTime(),title:(d.race?"Race day: ":"Today: ")+d.title,body:String(d.detail||"Open Stride Log for today's session.").slice(0,180)})}}
   const sig=JSON.stringify(items);if(sig===scheduleReminders.last)return;scheduleReminders.last=sig;
-  try{const {data}=await sb.from("docs").select("data").match({user_id:uid,coll:"reminders",id:"upcoming"}).maybeSingle();
-    await upsertDoc("reminders","upcoming",{items,sent:(data&&data.data&&data.data.sent)||[],tz:Intl.DateTimeFormat().resolvedOptions().timeZone})}catch(e){scheduleReminders.last=null}
+  try{let sent=[];try{const rows=await getDocs(["reminders"]);const r=rows.find(x=>x.id==="upcoming");if(r&&r.data.sent)sent=r.data.sent}catch(e){}
+    await upsertDoc("reminders","upcoming",{items,sent,tz:Intl.DateTimeFormat().resolvedOptions().timeZone})}catch(e){scheduleReminders.last=null}
 }
 async function enablePush(){
   if(!canPush){toast("Add Stride Log to your Home Screen, open it from there, then try again.");return}
@@ -490,35 +484,31 @@ async function enablePush(){
     const perm=await Notification.requestPermission();
     if(perm!=="granted"){toast("Notifications are off. Turn them on in iPhone Settings > Notifications > Stride Log.");return}
     const reg=await navigator.serviceWorker.ready;
-    const {publicKey}=await (await fetch(API()+"/vapid",{headers:{apikey:CFG.anonKey}})).json();
+    const {publicKey}=await (await fetch(API()+"/vapid")).json();
     const pad="===".slice((publicKey.length+3)%4);
     const key=Uint8Array.from(atob(publicKey.replace(/-/g,"+").replace(/_/g,"/")+pad),c=>c.charCodeAt(0));
     let sub=await reg.pushManager.getSubscription();
     if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:key});
-    const r=await fetch(API()+"/subscribe",{method:"POST",headers:Object.assign({"Content-Type":"application/json"},await authHeader()),body:JSON.stringify({sub:sub.toJSON()})});
+    const r=await call("/subscribe",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sub:sub.toJSON()})});
     if(!r.ok)throw 0;
     try{localStorage.setItem("stridelog.push","1")}catch(e){}
     if(!S.settings.remindTime)writeSettings({remindTime:"17:30"});else render();
     toast("Reminders are on");
   }catch(e){toast("Couldn't turn on reminders. Try again.")}
 }
-async function testPush(){try{const r=await fetch(API()+"/reminders?test=1",{method:"POST",headers:await authHeader()});const j=await r.json();toast(j.pushed?"Test sent. It should arrive in a few seconds.":"No phone is set up for reminders yet.")}catch(e){toast("Couldn't send a test")}}
-async function shortcutLink(){
-  let {data}=await sb.from("ingest_tokens").select("token").maybeSingle();
-  if(!data){const r=await sb.from("ingest_tokens").insert({}).select("token").single();data=r.data}
-  return data?API()+"/ingest?t="+data.token:null;
-}
+async function testPush(){try{const r=await call("/push-test",{method:"POST"});const j=await r.json();toast(j.pushed?"Test sent. It should arrive in a few seconds.":"No phone is set up for reminders yet.")}catch(e){toast("Couldn't send a test")}}
+async function shortcutLink(){const r=await call("/ingest-link");if(!r.ok)return null;return (await r.json()).url}
 function renderAccount(){
   let h='';
-  if(!CFG.supabaseUrl)return '<section class="card"><div class="eyebrow">Sync</div><div class="small muted">Sync isn\'t set up yet, so your log stays on this phone.</div></section>';
-  if(!uid)return '<section class="card"><div class="eyebrow">Account</div><div class="small muted">Sign in to sync your log, read watch screenshots and get workout reminders.</div><div class="btns"><button class="btn small primary" id="signInBtn">Sign in</button></div></section>';
+  if(!CFG.apiUrl)return '<section class="card"><div class="eyebrow">Sync</div><div class="small muted">Sync isn\'t set up yet, so your log stays on this phone.</div></section>';
+  if(!db)return '<section class="card"><div class="eyebrow">Sync</div><div class="small muted">Sign in to sync your log, read watch screenshots and get workout reminders.</div><div class="btns"><button class="btn small primary" id="signInBtn">Sign in</button></div></section>';
   const pushOn=(()=>{try{return localStorage.getItem("stridelog.push")==="1"}catch(e){return false}})();
   h+='<section class="card"><div class="eyebrow">Workout reminders</div>'+
     '<div class="small muted">A notification on your iPhone (and Apple Watch) on each workout day you haven\'t logged yet.</div>'+
     '<div class="grid2"><div class="field"><label for="setRemind">Remind me at</label><input id="setRemind" type="time" value="'+esc(S.settings.remindTime||"")+'"></div><div class="field"><span class="lab">Status</span><div style="padding:11px 0;font-weight:600">'+(pushOn&&S.settings.remindTime?"On":"Off")+'</div></div></div>'+
     '<div class="btns"><button class="btn small primary" id="pushBtn">'+(pushOn?"Re-connect this phone":"Turn on reminders")+'</button>'+(pushOn?'<button class="btn small" id="pushTest">Send a test</button>':'')+(S.settings.remindTime?'<button class="btn small" id="pushOff">Turn off</button>':'')+'</div></section>';
   h+='<section class="card"><div class="eyebrow">Nightly watch stats</div><div class="small muted">Your iPhone Shortcut sends steps, calories, distance and heart rate here each night. It needs this private link.</div><div class="btns"><button class="btn small" id="tokenBtn">Copy Shortcut link</button></div></section>';
-  h+='<section class="card"><div class="eyebrow">Account</div><div class="small">Signed in as <b>'+esc(S.email)+'</b></div><div class="btns"><button class="btn small" id="signOutBtn">Sign out</button></div></section>';
+  h+='<section class="card"><div class="eyebrow">Sync</div><div class="small">This phone is signed in and syncing.</div><div class="btns"><button class="btn small" id="signOutBtn">Sign out</button></div></section>';
   return h;
 }
 
@@ -735,8 +725,7 @@ function watchBody(w,shots){
     if(w.hr_zones_min)h+='<div class="small">Time in zones: '+["z1","z2","z3","z4","z5"].filter(k=>w.hr_zones_min[k]!=null).map(k=>"Z"+k[1]+" "+w.hr_zones_min[k]+" min").join(" · ")+'</div>';
     if(w.notes)h+='<div class="small muted">Heart rate: '+esc(w.notes)+'</div>';
   }else h+='<div class="small muted">'+(canImg?'Screenshot the workout summary in the Fitness app (and the heart rate graph if you like). Claude reads the numbers into this log.':'Type the numbers from your watch below.')+'</div>';
-  if(shots&&shots.length)h+='<div class="shots">'+shots.map(id=>'<img data-shot="'+esc(id)+'"'+(SHOTURL[id]?' src="'+esc(SHOTURL[id])+'"':'')+' alt="Workout screenshot">').join("")+'</div>';
-  setTimeout(fillShots,0);
+  if(shots&&shots.length)h+='<div class="shots">'+shots.map(id=>'<img src="'+esc(shotUrl(id))+'" alt="Workout screenshot" loading="lazy">').join("")+'</div>';
   return h}
 function openLog(date,prefill){
   const d=PLAN.byDate[date]||{date,kind:"rest",title:"Extra activity",dow:parse(date).getDay()};
@@ -871,7 +860,7 @@ document.addEventListener("click",e=>{
   if(t.id==="pushBtn"){enablePush();return}
   if(t.id==="pushTest"){testPush();return}
   if(t.id==="pushOff"){writeSettings({remindTime:null});toast("Reminders off");return}
-  if(t.id==="tokenBtn"){(async()=>{try{const u=await shortcutLink();if(!u)throw 0;try{await navigator.clipboard.writeText(u);toast("Link copied. Paste it into the Shortcut's URL step.")}catch(e){openSheet('<h2>Shortcut link</h2><div class="small" style="word-break:break-all;user-select:all">'+esc(u)+'</div><div class="btns"><button class="btn" onclick="this.closest(\'.scrim\').remove()">Close</button></div>')}}catch(e){toast("Couldn't get the link. Try again.")}})();return}
+  if(t.id==="tokenBtn"){(async()=>{try{const u=await shortcutLink();if(!u)throw 0;try{await navigator.clipboard.writeText(u);toast("Link copied. Paste it into the Shortcut's URL step.")}catch(e){const s=openSheet('<h2>Shortcut link</h2><div class="small" style="word-break:break-all;user-select:all">'+esc(u)+'</div><div class="btns"><button class="btn" id="tkClose">Close</button></div>');s.querySelector("#tkClose").onclick=closeSheet}}catch(e){toast("Couldn't get the link. Try again.")}})();return}
   if(t.id==="importBtn"){$("#importFile").click();return}
 });
 document.addEventListener("change",e=>{

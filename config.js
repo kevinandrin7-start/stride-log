@@ -1,6 +1,4 @@
-// Filled in once the Supabase project exists (Project Settings -> API).
-// Both values are public by design; your data is protected by sign-in.
+// The deploy workflow fills in apiUrl with your Cloudflare Worker's address.
 window.STRIDE_CONFIG = {
-  supabaseUrl: "",
-  anonKey: ""  // publishable (or anon) key
+  apiUrl: ""
 };
