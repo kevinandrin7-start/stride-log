@@ -1,4 +1,4 @@
-// The deploy workflow fills in apiUrl with your Cloudflare Worker's address.
+// Filled in by the deploy workflow.
 window.STRIDE_CONFIG = {
-  apiUrl: ""
+  apiUrl: "https://stride-log.kevinandrin123.workers.dev"
 };
