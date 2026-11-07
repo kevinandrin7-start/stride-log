@@ -110,6 +110,19 @@ async function getShot(env, id) {
   return new Response(new Uint8Array(r.data), { headers: { ...CORS, "Content-Type": r.type, "Cache-Control": "private, max-age=31536000, immutable" } });
 }
 
+
+// Accepts 2026-11-07, 11/7/2026, 11/7/26, "Nov 7, 2026", "November 7, 2026 at 11:00 PM"; blank means today in New York.
+function parseDate(v) {
+  const s = String(v || "").trim();
+  if (!s) return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
+  let m = s.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) return m[1] + "-" + m[2].padStart(2, "0") + "-" + m[3].padStart(2, "0");
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  if (m) { const y = m[3].length === 2 ? "20" + m[3] : m[3]; return y + "-" + m[1].padStart(2, "0") + "-" + m[2].padStart(2, "0"); }
+  const d = new Date(s.replace(/\s+at\s+.*$/i, ""));
+  if (!isNaN(d)) return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  return null;
+}
 async function ingestToken(env) { return (await hmac(env, "ingest")).slice(0, 32); }
 async function ingest(req, env, url) {
   if (!same(url.searchParams.get("t") || "", await ingestToken(env))) return json({ error: "bad_token" }, 403);
@@ -118,8 +131,8 @@ async function ingest(req, env, url) {
   try { body = JSON.parse(raw); } catch {
     for (const line of raw.split(/\r?\n/)) { const m = line.match(/^\s*([a-z_]+)\s*[:=]\s*(.+?)\s*$/i); if (m) body[m[1].toLowerCase()] = m[2]; }
   }
-  const date = String(body.date || "").slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return json({ error: "bad_date" }, 400);
+  const date = parseDate(body.date);
+  if (!date) return json({ error: "bad_date", got: String(body.date || "").slice(0, 40) }, 400);
   const data = { source: "shortcut", importedAt: Date.now() };
   for (const k of ["steps", "active_cal", "distance_mi", "hr_avg", "hr_min", "hr_max", "resting_hr"]) {
     const v = num(body[k]); data[k] = v == null ? null : k === "distance_mi" ? v : Math.round(v);
