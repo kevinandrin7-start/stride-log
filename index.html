@@ -1092,7 +1092,7 @@ function renderMore(){
   h+='<section class="card"><div class="eyebrow">Strength (twice a week, 20–30 min)</div><div class="small">2 to 3 sets of: single-leg calf raises (straight and bent knee, 15 each), split squats or step-ups (8–10 each), glute bridges (12), side planks (30 s), Copenhagen or side-lying leg raises (10 each).</div></section>';
   h+=renderAccount();
   h+='<section class="card"><div class="eyebrow">Your data</div><div class="small muted">'+(db?"Your log syncs to your account.":"Your log is saved on this phone. Export a backup now and then, and keep the app on your home screen so iOS doesn't clear it.")+'</div><div class="btns"><button class="btn small" id="exportBtn">Export backup</button><button class="btn small" id="importBtn">Import backup</button></div></section>';
-  h+='<section class="card"><div class="eyebrow">Install on iPhone</div><div class="small">Open this page in Safari, tap Share, then <b>Add to Home Screen</b>. It opens full-screen, works offline, and is needed for reminders. Keep your phone unlocked during the interval timer so the cues play.</div></section>';
+  h+='<section class="card"><div class="eyebrow">Install on iPhone</div><div class="small">Open this page in Safari, tap Share, then <b>Add to Home Screen</b>. It opens full-screen, works offline, and is needed for reminders. Keep your phone unlocked during the interval timer so the cues play.</div><div class="small muted">App version 11</div></section>';
   return h;
 }
 function render(){
