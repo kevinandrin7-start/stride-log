@@ -199,6 +199,11 @@ table.zt td:last-child{text-align:right;font-variant-numeric:tabular-nums}
 .mem{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--line)}
 .mem .meta{flex:1;min-width:0}.mem .meta b,.mem .meta .s{display:block}.mem .meta .s{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
 .code{font:700 26px/1 var(--display);letter-spacing:.12em}
+.guide{margin:0;padding-left:22px;display:flex;flex-direction:column;gap:12px;font-size:15px}
+.guide li::marker{font-weight:700;color:var(--muted)}
+.guide .s{display:block;font-size:13px;color:var(--muted);margin-top:2px}
+.guide code,.tline{font:600 13px/1.5 ui-monospace,Menlo,monospace;background:var(--surface-2);border-radius:6px;padding:1px 5px}
+.tblock{display:block;font:600 13px/1.6 ui-monospace,Menlo,monospace;background:var(--surface-2);border-radius:10px;padding:10px 12px;white-space:pre-wrap;margin-top:6px}
 .imp{border:1.5px dashed var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px}
 .imp .wv{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
 .imp .wv div{background:var(--surface);border-radius:8px;padding:7px 8px;display:flex;flex-direction:column;min-width:0}
@@ -613,7 +618,7 @@ function renderAccount(){
     '<div class="small muted">A notification on your iPhone (and Apple Watch) on each workout day you haven\'t checked off yet.</div>'+
     '<div class="grid2"><div class="field"><label for="setRemind">Remind me at</label><input id="setRemind" type="time" value="'+esc(S.settings.remindTime||"")+'"></div><div class="field"><span class="lab">Status</span><div class="val">'+(pushOn&&S.settings.remindTime?"On":"Off")+'</div></div></div>'+
     '<div class="btns"><button class="btn small primary" id="pushBtn">'+(pushOn?"Re-connect this phone":"Turn on reminders")+'</button>'+(pushOn?'<button class="btn small" id="pushTest">Send a test</button>':'')+(S.settings.remindTime?'<button class="btn small" id="pushOff">Turn off</button>':'')+'</div></section>';
-  h+='<section class="card"><div class="eyebrow">Nightly watch stats</div><div class="small muted">Your iPhone Shortcut sends steps, calories, distance and heart rate here each night. It needs this private link.</div><div class="btns"><button class="btn small" id="tokenBtn">Copy Shortcut link</button></div></section>';
+  h+='<section class="card"><div class="eyebrow">Nightly watch stats</div><div class="small muted">Your iPhone Shortcut sends steps, calories, distance and heart rate here each night. It needs this private link.</div><div class="btns"><button class="btn small primary" id="guideBtn">Setup guide</button><button class="btn small" id="tokenBtn">Copy Shortcut link</button></div></section>';
   const me=S.me||{};
   h+='<section class="card"><div class="eyebrow">Account</div><div class="small">Signed in as <b>'+esc(me.name||(isOwner()?"the owner":"you"))+'</b>'+(me.email?" ("+esc(me.email)+")":"")+'. This phone is syncing.</div>'+
     (isOwner()&&!me.email?'<div class="small muted">Add an email and password so you can sign in on other devices.</div>':'')+
@@ -722,7 +727,7 @@ async function loadAdmin(){
   try{const r=await call("/admin");if(r.ok){S.admin=await r.json();S.adminAt=Date.now();if(tab==="more")render()}}catch(e){}
   loadAdmin.busy=false;
 }
-function inviteText(){return "Join me on Stride Log, a 30-week marathon plan that fits you. Open "+location.origin+location.pathname+" on your iPhone in Safari, tap New account, and use invite code "+(S.admin&&S.admin.invite)+"."}
+function inviteText(){return "Join me on Stride Log, a 30-week marathon plan that fits you. Open "+location.origin+location.pathname+" on your iPhone in Safari, tap Share > Add to Home Screen, open it from there, tap New account, and use invite code "+(S.admin&&S.admin.invite)+". After you sign up, go to Settings > Setup guide to send your Apple Watch stats each night."}
 function membersCard(){
   if(!isOwner())return "";
   const a=S.admin;
@@ -730,7 +735,7 @@ function membersCard(){
   const ago=t=>{if(!t)return "never";const d=Math.floor((Date.now()-t)/864e5);return d<=0?"today":d===1?"yesterday":d+" days ago"};
   return '<section class="card"><div class="eyebrow">Invite people</div><div class="row"><span class="code">'+esc(a.invite)+'</span><button class="btn small" id="invNew">New code</button></div>'+
     '<div class="small muted">Anyone with this code can create an account. Making a new code stops the old one working. Existing members aren\'t affected.</div>'+
-    '<div class="btns"><button class="btn small primary" id="invCopy">Copy invite message</button></div></section>'+
+    '<div class="btns"><button class="btn small primary" id="invCopy">Copy invite message</button><button class="btn small" id="guideCopy">Copy watch-stats instructions</button></div></section>'+
     '<section class="card"><div class="eyebrow">Members · '+a.users.length+'</div><div>'+a.users.map(u=>'<div class="mem"><span class="meta"><b>'+esc(u.name||(u.role==="owner"?"You":"No name"))+(u.role==="owner"?' <span class="chip">You</span>':'')+'</b><span class="s">'+esc(u.email||"No email yet")+'</span><span class="s">Joined '+esc(nice(fmt(new Date(u.created_at))))+' · active '+ago(u.seen_at)+' · '+u.logs+' days logged</span></span>'+
       (u.role==="owner"?'':'<span class="btns" style="flex-direction:column;gap:6px;margin:0"><button class="btn small" data-mreset="'+esc(u.id)+'">Reset password</button><button class="btn small ghost" data-mdel="'+esc(u.id)+'">Remove</button></span>')+'</div>').join("")+'</div>'+
     '<div class="small muted">Screenshot reading uses your Anthropic credit. Each member can read up to 20 a day.</div></section>';
@@ -753,6 +758,32 @@ async function deleteMe(){
   const r=await call("/me",{method:"DELETE"});if(!r.ok){toast("Couldn't delete");return}
   signOut();toast("Account deleted");
 }
+
+/* ---------- Shortcut setup guide (each person's link is private to them) ---------- */
+async function openShortcutGuide(){
+  let link=null;try{link=await shortcutLink()}catch(e){}
+  const step=(t,sub)=>'<li><b>'+t+'</b>'+(sub?'<span class="s">'+sub+'</span>':'')+'</li>';
+  const find=(type,extra)=>'Add <b>Find Health Samples</b>. Set Type to <b>'+type+'</b>, add the filter <b>Start Date is Today</b>'+(extra||', and set Group By to <b>Day</b>')+'.';
+  const s=openSheet('<div class="eyebrow">Apple Watch and iPhone</div><h2>Send your daily stats</h2>'+
+    '<div class="small muted">A Shortcut on your iPhone sends today\'s steps, calories, distance and resting heart rate to Stride Log every night. These fill your Progress graphs. Setup takes about 10 minutes, once.</div>'+
+    '<div class="card" style="padding:12px;gap:8px"><div class="eyebrow">Your private link</div><div class="small" style="word-break:break-all;user-select:all">'+(link?esc(link):"Couldn't load it. Close this and try again.")+'</div><div class="btns" style="margin:0"><button class="btn small primary" id="gCopy">Copy link</button></div><div class="small muted">Don\'t share it. Anyone with it can add stats to your account.</div></div>'+
+    '<ol class="guide">'+
+      step("Open the Shortcuts app and tap +.","Tap the name at the top and call it Stride Log Daily.")+
+      step(find("Steps"),"This is today\'s step total.")+
+      step(find("Active Energy"))+
+      step(find("Walking + Running Distance"),"If it shows km, tap the unit and pick mi.")+
+      step(find("Resting Heart Rate",", set Sort by Start Date, Order Latest First, and turn on Limit with 1"),"Your watch records this once a day.")+
+      step('Add <b>Text</b>, and type these five lines.','For the date, tap <b>Current Date</b> in the variable bar. After each other colon, tap the blue <b>Health Samples</b> button above the keyboard and pick the matching step (Steps, Active Energy, Distance, Resting Heart Rate). If the variable bar shows only the newest, long-press it and choose <b>Select Variable</b>.<span class="tblock">date: [Current Date]\nsteps: [Health Samples · Steps]\nactive_cal: [Health Samples · Active Energy]\ndistance_mi: [Health Samples · Distance]\nresting_hr: [Health Samples · Resting HR]</span>')+
+      step('Add <b>Get Contents of URL</b>.','Paste your private link as the URL. Tap <b>Show More</b>, set Method to <b>POST</b>, Request Body to <b>File</b>, then tap File and choose <b>Text</b>.')+
+      step('Tap ▶︎ to run it once.','Allow access to Health when asked (turn on all four types). You should see <span class="tline">"ok": true</span>. If it asks about sharing with stride-log, tap <b>Always Allow</b>.')+
+      step('Make it run every night.','Go to the <b>Automation</b> tab, tap +, choose <b>Time of Day</b>, set <b>11:00 PM</b> and <b>Daily</b>, choose <b>Run Immediately</b>, then pick the Stride Log Daily shortcut.')+
+    '</ol>'+
+    '<div class="small muted">Stuck? A blank value is fine; the app skips it. If you see "bad_token", copy your link again. Your stats show up under Progress the next time you open the app.</div>'+
+    '<div class="btns"><button class="btn grow" id="gClose">Done</button></div>');
+  s.querySelector("#gClose").onclick=closeSheet;
+  s.querySelector("#gCopy").onclick=async()=>{if(!link)return;try{await navigator.clipboard.writeText(link);toast("Link copied")}catch(e){toast("Press and hold the link to copy it")}};
+}
+function guideText(){return "To get your Apple Watch stats into Stride Log (steps, calories, distance and resting heart rate for your Progress graphs): open Stride Log, go to Settings, and tap Setup guide under Nightly watch stats. It walks you through a 10-minute iPhone Shortcut and has your own private link to paste in. Do it once, and it sends your stats every night at 11pm."}
 
 /* ---------- analytics ---------- */
 function statusOf(d,today){const l=S.logs[d.date];if(l)return l.status;if(d.date<today&&RUNKINDS[d.kind])return "missed";return "plan"}
@@ -867,6 +898,7 @@ function renderToday(){
   if(db&&S.me&&!isOwner()&&!S.settings.profile)return '<section class="card"><div class="eyebrow">Welcome'+(S.me.name?", "+esc(S.me.name):"")+'</div><h2 style="font:700 26px/1.1 var(--display);text-transform:uppercase">Let\'s build your plan</h2><div class="small muted">A few questions about you and your running, and you\'ll get a 30-week plan with your own heart rate zones.</div><div class="btns"><button class="btn primary grow" id="profStart">Start</button></div></section>';
   if(!db&&CFG.apiUrl&&!tok)return '<section class="card"><div class="eyebrow">Stride Log</div><h2 style="font:700 26px/1.1 var(--display);text-transform:uppercase">30 weeks to a marathon</h2><div class="small muted">Sign in, or create an account with your invite code, to get a plan built for you.</div><div class="btns"><button class="btn primary grow" id="signInBtn">Sign in</button><button class="btn grow" id="signUpBtn">New account</button></div></section>';
   const today=todayStr();const start=PLAN.days[0].date;let h=countdownHero(today);
+  if(db&&!Object.keys(S.daily||{}).length&&!S.settings.guideHidden)h+='<section class="card"><div class="row"><div class="eyebrow">Connect your watch</div><button class="btn small ghost" id="guideHide">Hide</button></div><div class="small muted">Send your steps, calories and resting heart rate each night so Progress can graph them.</div><div class="btns"><button class="btn small primary" id="guideBtn">Setup guide</button></div></section>';
   if(today<start){
     const wk=PLAN.weeks[0];
     h+='<section class="card"><div class="row"><div class="eyebrow">Week 1 preview</div><span class="small muted">Tap a day</span></div>'+weekStrip(wk,today)+'</section>';
@@ -1232,6 +1264,9 @@ document.addEventListener("click",e=>{
   if(t.id==="delMe"){deleteMe();return}
   if(t.id==="invNew"){adminAct("newcode");return}
   if(t.id==="invCopy"){adminAct("copy");return}
+  if(t.id==="guideBtn"){openShortcutGuide();return}
+  if(t.id==="guideHide"){writeSettings({guideHidden:true});return}
+  if(t.id==="guideCopy"){(async()=>{const g=guideText();try{await navigator.clipboard.writeText(g);toast("Copied. Paste it into a message to your members.")}catch(e){const s=openSheet('<h2>Instructions</h2><div class="small" style="user-select:all">'+esc(g)+'</div><div class="btns"><button class="btn" id="gtClose">Close</button></div>');s.querySelector("#gtClose").onclick=closeSheet}})();return}
   if(t.dataset.mreset){adminAct("reset",t.dataset.mreset);return}
   if(t.dataset.mdel){adminAct("del",t.dataset.mdel);return}
   if(t.id==="signOutBtn"){signOut();return}
