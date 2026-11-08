@@ -189,6 +189,16 @@ table.zt td:last-child{text-align:right;font-variant-numeric:tabular-nums}
 .msrow .num{font-size:30px;width:64px;line-height:1}
 .msrow .meta{flex:1;min-width:0}
 .check{display:flex;gap:10px;align-items:flex-start}
+.opts{display:flex;flex-direction:column;gap:8px}
+.opt{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.field .opt input{width:20px;height:20px;min-height:0;padding:0;border:0;margin-top:1px;accent-color:var(--accent);flex:none;-webkit-appearance:auto;appearance:auto}
+.opt .s{display:block;font-size:13px;color:var(--muted)}
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:var(--surface-2);padding:4px;border-radius:12px}
+.seg button{border:0;border-radius:9px;min-height:38px;font-weight:700;background:transparent;color:var(--muted)}
+.seg button[aria-pressed=true]{background:var(--surface);color:var(--ink)}
+.mem{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--line)}
+.mem .meta{flex:1;min-width:0}.mem .meta b,.mem .meta .s{display:block}.mem .meta .s{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
+.code{font:700 26px/1 var(--display);letter-spacing:.12em}
 .imp{border:1.5px dashed var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px}
 .imp .wv{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
 .imp .wv div{background:var(--surface);border-radius:8px;padding:7px 8px;display:flex;flex-direction:column;min-width:0}
@@ -277,6 +287,42 @@ const PHASES=[
 const DOW=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const RUNKINDS={easy:1,long:1,quality:1,race:1};
+/* ---------- personalizing the plan from a profile ---------- */
+const LEVELS=[
+  {t:"Just starting",s:"Can't jog 5 minutes without stopping yet"},
+  {t:"Run-walk",s:"Can run-walk for 20 to 30 minutes"},
+  {t:"Runner",s:"Can run 30 minutes without stopping"},
+  {t:"Regular runner",s:"Already run 15+ miles a week"}
+];
+const P1_0={
+  1:{easy:{reps:10,run:1,walk:1},long:25,lr:1},
+  2:{easy:{reps:8,run:2,walk:1},long:28,lr:2},
+  3:{easy:{reps:6,run:3,walk:1},long:30,lr:3},
+  4:{easy:{reps:6,run:2,walk:1},long:25,lr:2,cut:true},
+  5:{easy:{reps:5,run:4,walk:1},long:32,lr:4},
+  6:{easy:{reps:4,run:6,walk:1},long:35,lr:6},
+  7:{easy:{reps:3,run:8,walk:1},long:38,lr:8},
+  8:{bench:true,bmin:20,emin:20,long:35}
+};
+function p1For(w,lvl){
+  if(lvl===0)return P1_0[w];
+  if(lvl!==2&&lvl!==3)return P1[w];
+  const E=lvl===2?[25,28,30,25,32,35,38]:[35,38,40,32,42,45,48];
+  const L=lvl===2?[35,40,45,35,48,50,55]:[50,55,60,45,65,70,75];
+  if(w===8)return {bench:true,bmin:lvl===2?40:45,emin:lvl===2?35:40,long:lvl===2?60:80,cont:true};
+  return {easy:{custom:[["run",E[w-1]]],desc:E[w-1]+" min easy run"},long:L[w-1],lr:L[w-1],cont:true,cut:w===4};
+}
+function bmiOf(p){const h=(+p.heightFt||0)*12+(+p.heightIn||0),w=+p.weightLb||0;return h>40&&w>50?Math.round(w*703/(h*h)*10)/10:null}
+function estMaxHr(p){const a=+p.age||0;if(!a)return null;return Math.round(p.sex==="female"?206-0.88*a:208-0.7*a)}
+function planParams(s){
+  const p=s&&s.profile;if(!p)return {lvl:1,mult:1};
+  let lvl=+p.level;if(!(lvl>=0&&lvl<=3))lvl=1;
+  let m=[0.85,1,1.15,1.3][lvl];const age=+p.age||0;
+  if(age>=60)m-=0.15;else if(age>=50)m-=0.1;
+  const bmi=bmiOf(p);if(bmi&&bmi>=30)m-=0.1;
+  m=Math.max(0.75,Math.min(1.3,m));
+  return {lvl,mult:Math.round(m*100)/100,bmi};
+}
 
 /* ---------- date helpers (local dates as YYYY-MM-DD) ---------- */
 function parse(s){const [y,m,d]=s.split("-").map(Number);return new Date(y,m-1,d)}
@@ -307,6 +353,7 @@ function runWalk(totalMin,run,walk){
 }
 function withWarm(segs){return [["warm",5]].concat(segs,[["cool",5]])}
 function buildPlan(settings){
+  const PP=planParams(settings),sc=v=>Math.max(2,Math.round(v*PP.mult*2)/2),scL=v=>Math.max(2,Math.round(v*Math.max(0.9,PP.mult)*2)/2);
   const reps=(settings.repeats||[]).slice().sort((a,b)=>a-b);
   const seq=[];for(let w=1;w<=30;w++){seq.push({w,rep:false});reps.filter(r=>r===w).forEach(()=>seq.push({w,rep:true}))}
   const days=[],weeks=[];
@@ -316,29 +363,31 @@ function buildPlan(settings){
     const wk={slot:i+1,w,rep:slot.rep,start,phase,tag:"",note:"",days:[],unit:phase===1?"min":"mi",planned:0};
     const mk=(dow,o)=>{const date=addDays(start,(dow+6)%7);const d=Object.assign({date,w,slot:i+1,phase,dow,kind:"rest",title:"Rest",detail:"",strength:false,optional:false},o);wk.days.push(d);days.push(d);return d};
     if(phase===1){
-      const p=P1[w];wk.tag=p.cut?"cutback":p.bench?"benchmark":"";
+      const p=p1For(w,PP.lvl);wk.tag=p.cut?"cutback":p.bench?"benchmark":"";
+      const bmin=p.bmin||30,emin=p.emin||25,blong=p.bench?(p.long||45):0;
       const easySegs=p.bench?null:(p.easy.custom?p.easy.custom:[].concat(...Array(p.easy.reps).fill([["run",p.easy.run],["walk",p.easy.walk]])).slice(0,-1));
-      const easyDesc=p.bench?"":p.easy.custom?"20 min jog, 1 min walk, 12 min jog":p.easy.reps+" × ("+p.easy.run+" min jog, 1 min walk)";
+      const easyDesc=p.bench?"":p.easy.desc?p.easy.desc:p.easy.custom?"20 min jog, 1 min walk, 12 min jog":p.easy.reps+" × ("+p.easy.run+" min jog, "+p.easy.walk+" min walk)";
       const easyMin=easySegs?easySegs.reduce((a,s)=>a+s[1],0):25;
       const strides=w>=3?" Then 4–6 relaxed 20 s strides at about 7.0–7.5 mph with full recovery.":"";
-      wk.note=p.cut?"Cutback week: lighter so your legs absorb the last three weeks.":p.bench?"Benchmark week: one 30-minute continuous run in Zone 2.":"Jog in Zone 2. If HR passes the Zone 2 ceiling, walk until it drops about 14 bpm, then resume.";
+      wk.note=p.cut?"Cutback week: lighter so your legs absorb the last three weeks.":p.bench?"Benchmark week: one "+bmin+"-minute continuous run in Zone 2.":p.cont?"Run easy in Zone 2 the whole way. If HR passes the ceiling, slow down or walk briefly until it settles.":"Jog in Zone 2. If HR passes the Zone 2 ceiling, walk until it drops about 14 bpm, then resume.";
       mk(1,{kind:"rest",title:"Rest"});
       if(p.bench){
-        mk(2,{kind:"easy",title:"Benchmark: 30 min continuous",detail:"30 minutes of continuous running in Zone 2. Walk 5 min before and after.",minutes:30,segs:withWarm([["run",30]]),strength:true,hr:"z2"});
-        mk(3,{kind:"easy",title:"Easy run 25 min",detail:"25 minutes easy. Walk breaks if HR drifts high."+strides,minutes:25,segs:withWarm([["run",25]]),hr:"z2"});
-        mk(5,{kind:"easy",title:"Easy run 25 min",detail:"25 minutes easy.",minutes:25,segs:withWarm([["run",25]]),strength:true,hr:"z2"});
+        mk(2,{kind:"easy",title:"Benchmark: "+bmin+" min continuous",detail:bmin+" minutes of continuous running in Zone 2. Walk 5 min before and after.",minutes:bmin,segs:withWarm([["run",bmin]]),strength:true,hr:"z2"});
+        mk(3,{kind:"easy",title:"Easy run "+emin+" min",detail:emin+" minutes easy. Walk breaks if HR drifts high."+strides,minutes:emin,segs:withWarm([["run",emin]]),hr:"z2"});
+        mk(5,{kind:"easy",title:"Easy run "+emin+" min",detail:emin+" minutes easy.",minutes:emin,segs:withWarm([["run",emin]]),strength:true,hr:"z2"});
       }else{
-        mk(2,{kind:"easy",title:"Easy run-walk",detail:easyDesc+".",minutes:easyMin,segs:withWarm(easySegs),strength:true,hr:"z2"});
-        mk(3,{kind:"easy",title:"Easy run-walk",detail:easyDesc+"."+strides,minutes:easyMin,segs:withWarm(easySegs),hr:"z2"});
-        mk(5,{kind:"easy",title:"Easy run-walk",detail:easyDesc+".",minutes:easyMin,segs:withWarm(easySegs),strength:true,hr:"z2"});
+        const et=p.cont?"Easy run "+easyMin+" min":"Easy run-walk";
+        mk(2,{kind:"easy",title:et,detail:easyDesc+".",minutes:easyMin,segs:withWarm(easySegs),strength:true,hr:"z2"});
+        mk(3,{kind:"easy",title:et,detail:easyDesc+"."+strides,minutes:easyMin,segs:withWarm(easySegs),hr:"z2"});
+        mk(5,{kind:"easy",title:et,detail:easyDesc+".",minutes:easyMin,segs:withWarm(easySegs),strength:true,hr:"z2"});
       }
       mk(4,{kind:"cross",title:"Rest or cross-train",detail:"Rest, or 30 min easy bike, row, elliptical or swim in Zone 2.",optional:true});
-      const lsegs=p.bench?[["run",45]]:runWalk(p.long,p.lr,1);
-      mk(6,{kind:"long",title:"Long run-walk "+p.long+" min",detail:p.bench?"45 minutes easy. Walk breaks are fine.":p.long+" minutes of "+p.lr+" min jog / 1 min walk.",minutes:p.long,segs:withWarm(lsegs),hr:"z2"});
+      const lsegs=p.bench||p.cont?[["run",p.long]]:runWalk(p.long,p.lr,1);
+      mk(6,{kind:"long",title:(p.cont?"Long run ":"Long run-walk ")+p.long+" min",detail:p.bench?p.long+" minutes easy. Walk breaks are fine.":p.cont?p.long+" minutes easy in Zone 2.":p.long+" minutes of "+p.lr+" min jog / 1 min walk.",minutes:p.long,segs:withWarm(lsegs),hr:"z2"});
       mk(0,{kind:"cross",title:"Walk or bike",detail:"30 to 45 min easy walk or bike ride.",optional:true});
       wk.planned=wk.days.filter(d=>RUNKINDS[d.kind]).reduce((a,d)=>a+d.minutes,0);
     }else if(phase===2){
-      const [tot,lg,note,cut]=P2[w];wk.tag=cut?"cutback":"";wk.note=note;
+      const [tot0,lg0,note,cut]=P2[w];const tot=sc(tot0),lg=Math.min(20,scL(lg0));wk.tag=cut?"cutback":"";wk.note=note;
       const raceWk=w===12;const quality=w>=13;
       const longMi=raceWk?3.6:lg;const ez=splitMiles(tot-longMi,3);
       mk(1,{kind:"rest",title:"Rest"});
@@ -350,9 +399,9 @@ function buildPlan(settings){
       if(raceWk)mk(6,{kind:"race",title:"5K race",detail:"Your first race! Local 5K or parkrun. Jog 0.5 mi to warm up, start easy, finish strong.",miles:3.6,race:"5K",hr:"z3"});
       else mk(6,{kind:"long",title:"Long run "+lg+" mi",detail:lg+" mi in Zone 2. Walk breaks allowed whenever HR passes the ceiling.",miles:lg,hr:"z2"});
       mk(0,{kind:"easy",title:"Easy run "+ez[2]+" mi",detail:ez[2]+" mi easy.",miles:ez[2],hr:"z2"});
-      wk.planned=tot;
+      wk.planned=Math.round(wk.days.reduce((a,d)=>a+(RUNKINDS[d.kind]&&d.miles||0),0)*10)/10;
     }else{
-      const [tot,lg,qtxt,qmi,qz,lnote,tag]=P3[w];wk.tag=tag||"";
+      const [tot0,lg0,qtxt,qmi,qz,lnote,tag]=P3[w];const fixed=w===22||w===30;const lg=fixed?lg0:Math.min(20,scL(lg0));const tot=fixed?tot0:Math.max(sc(tot0),lg+qmi+4);wk.tag=tag||"";
       const five=w>=19;const lateStrength=w>=28;
       mk(1,{kind:"rest",title:"Rest"});
       if(w===30){
@@ -368,7 +417,7 @@ function buildPlan(settings){
         const raceWk=w===22;
         const easyDays=five?3:2;
         const rest=tot-lg-(raceWk?0:qmi);const ez=splitMiles(rest,raceWk?3:easyDays);
-        wk.note=raceWk?"Cutback week with your half marathon on Saturday. Its result sets your marathon effort.":tag==="cutback"?"Cutback week: lighter so you absorb the training.":tag==="peak"?"Peak week: your one 20-miler. Fuel every 30 to 40 min.":tag==="taper"?"Taper: volume drops while some intensity stays.":"Long run in Zone 2. Fuel on anything over 75 minutes.";
+        wk.note=raceWk?"Cutback week with your half marathon on Saturday. Its result sets your marathon effort.":tag==="cutback"?"Cutback week: lighter so you absorb the training.":tag==="peak"?"Peak week: your longest run, "+lg+" mi. Fuel every 30 to 40 min.":tag==="taper"?"Taper: volume drops while some intensity stays.":"Long run in Zone 2. Fuel on anything over 75 minutes.";
         let k=0;
         if(raceWk)mk(2,{kind:"easy",title:"Easy run "+ez[k]+" mi",detail:ez[k]+" mi easy.",miles:ez[k++],hr:"z2"});
         else mk(2,{kind:"quality",title:qtxt.split(":")[0],detail:qtxt+(qz==="me"?". Marathon effort is about high Zone 2 to low Zone 3.":"."),miles:qmi,hr:qz==="easy"?"z2":qz});
@@ -379,7 +428,7 @@ function buildPlan(settings){
         if(raceWk)mk(6,{kind:"race",title:"Half marathon",detail:"Race or a 10 mi run. Run the first half easy. Your finishing pace sets marathon effort for the block.",miles:13.1,race:"Half marathon",hr:"z3"});
         else mk(6,{kind:"long",title:"Long run "+lg+" mi",detail:lg+" mi in Zone 2"+(lnote?", "+lnote:"")+". Run-walk is fine (9 min run, 1 min walk). Stop at 3.5 hours.",miles:lg,hr:"z2"});
         mk(0,{kind:"easy",title:"Recovery run "+ez[k]+" mi",detail:ez[k]+" mi very easy.",miles:ez[k++],hr:"z1"});
-        wk.planned=tot;
+        wk.planned=Math.round(wk.days.reduce((a,d)=>a+(RUNKINDS[d.kind]&&d.miles||0),0)*10)/10;
       }
     }
     wk.days.sort((a,b)=>a.date<b.date?-1:1);
@@ -403,6 +452,12 @@ function setSync(k){S.sync=k;const el=document.getElementById("sync");el.classNa
   el.querySelector("span").textContent=k==="ok"?"Synced":k==="local"?"This device only":k==="saving"?"Saving":"Loading"}
 const CFG=window.STRIDE_CONFIG||{};
 let tok=null,canPush=false,visHooked=false;
+const UIDK="stridelog.uid";
+const isOwner=()=>!!(S.me&&S.me.role==="owner");
+function nextMonday(from){const d=parse(from||todayStr());const add=(8-d.getDay())%7||7;d.setDate(d.getDate()+add);return fmt(d)}
+function mondayOnOrAfter(v){const d=parse(v);const add=(8-d.getDay())%7;d.setDate(d.getDate()+add);return fmt(d)}
+function freshSettings(){return {startDate:nextMonday(),maxHr:190,restHr:null,repeats:[]}}
+function resetLocal(){S.logs={};S.daily={};S.settings=freshSettings();S.me=null;S.admin=null;PLAN=buildPlan(S.settings);try{localStorage.removeItem(LS);localStorage.removeItem("stridelog.push")}catch(e){}}
 try{tok=localStorage.getItem("stridelog.token")}catch(e){}
 const API=()=>String(CFG.apiUrl||"").replace(/\/$/,"");
 async function call(path,opt){opt=opt||{};const h=Object.assign({},opt.headers||{});if(tok)h.Authorization="Bearer "+tok;
@@ -437,8 +492,10 @@ async function pull(){
   for(const k of push){try{await upsertDoc("logs",k,S.logs[k]);remote[k]=S.logs[k]}catch(e){}}
   S.logs=remote;S.daily=daily;
   if(settings){S.settings=Object.assign({},DEFAULTS,settings);PLAN=buildPlan(S.settings)}
-  else{try{await upsertDoc("settings","main",S.settings)}catch(e){}}
+  else if(isOwner()){try{await upsertDoc("settings","main",S.settings)}catch(e){}}
+  else{S.settings=Object.assign(freshSettings(),{remindTime:S.settings.remindTime||null});PLAN=buildPlan(S.settings)}
   saveLocal();setSync("ok");render();scheduleReminders();
+  if(S.me&&!isOwner()&&!S.settings.profile&&!$("#scrim"))openProfile(true);
 }
 async function connect(){
   if(!CFG.apiUrl){setSync("local");return}
@@ -446,25 +503,49 @@ async function connect(){
   await onSignedIn();
 }
 async function onSignedIn(){
+  try{const r=await call("/me");if(r.ok){S.me=(await r.json()).user;try{const old=localStorage.getItem(UIDK);if(old&&old!==S.me.id){const keep=S.me;resetLocal();S.me=keep}localStorage.setItem(UIDK,S.me.id)}catch(e){}}}catch(e){}
+  if(!tok)return;
   db={};sampler={json:readShots};canImg=true;assets={upload:uploadShot};
   canPush=("serviceWorker" in navigator)&&("PushManager" in window)&&("Notification" in window);
   if(!visHooked){visHooked=true;document.addEventListener("visibilitychange",()=>{if(!document.hidden)pull()})}
   await pull();
 }
-function showSignIn(msg){
+function showSignIn(msg,mode){
   if(!CFG.apiUrl){toast("Sync isn't set up yet");return}
-  const s=openSheet('<div class="eyebrow">Stride Log</div><h2>Sign in to sync</h2><div class="small muted">Use the app password you chose during setup. You only need to do this once on each device.</div>'+(msg?'<div class="small" style="color:var(--warn)">'+esc(msg)+'</div>':'')+
-    '<div class="field"><label for="aPw">App password</label><input id="aPw" type="password" autocomplete="current-password"></div>'+
-    '<div class="btns"><button class="btn primary grow" id="aIn">Sign in</button><button class="btn" id="aLater">Not now</button></div>');
+  mode=mode||"in";
+  const up=mode==="up";
+  const s=openSheet('<div class="eyebrow">Stride Log</div><h2>'+(up?"Create your account":"Sign in")+'</h2>'+
+    '<div class="seg" role="group"><button id="mIn" aria-pressed="'+!up+'">Sign in</button><button id="mUp" aria-pressed="'+up+'">New account</button></div>'+
+    '<div class="small muted">'+(up?"You'll need the invite code from the person who shared Stride Log with you. Next you'll answer a few questions so your 30-week plan fits you.":"Use the email and password for your account. You only need to do this once on each device.")+'</div>'+
+    (msg?'<div class="small" style="color:var(--warn)">'+esc(msg)+'</div>':'')+
+    (up?'<div class="field"><label for="aName">Your first name</label><input id="aName" autocomplete="given-name" maxlength="60"></div>':'')+
+    '<div class="field"><label for="aEmail">Email</label><input id="aEmail" type="email" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false"></div>'+
+    '<div class="field"><label for="aPw">Password'+(up?" (8+ characters)":"")+'</label><input id="aPw" type="password" autocomplete="'+(up?"new-password":"current-password")+'"></div>'+
+    (up?'<div class="field"><label for="aInv">Invite code</label><input id="aInv" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="12"></div>':'')+
+    '<div class="btns"><button class="btn primary grow" id="aIn">'+(up?"Create account":"Sign in")+'</button><button class="btn" id="aLater">Not now</button></div>'+
+    (up?'<div class="small muted">Your log and health details are stored on the server run by the person who invited you, and only your account can see them. You can delete your account in Settings.</div>':''));
   s.querySelector("#aLater").onclick=closeSheet;
+  s.querySelector("#mIn").onclick=()=>showSignIn(null,"in");
+  s.querySelector("#mUp").onclick=()=>showSignIn(null,"up");
+  const v=id=>{const e=s.querySelector(id);return e?e.value.trim():""};
   s.querySelector("#aIn").onclick=async()=>{
-    const password=s.querySelector("#aPw").value;if(!password){toast("Enter your app password");return}
-    try{const r=await fetch(API()+"/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password})});const j=await r.json().catch(()=>({}));
-      if(!r.ok){toast(j.error==="wrong_password"?"That password isn't right":"Couldn't sign in. Try again.");return}
-      setToken(j.token);closeSheet();toast("Signed in");await onSignedIn()}
-    catch(e){toast("Couldn't reach the server. Check your connection.")}};
+    const body={email:v("#aEmail"),password:s.querySelector("#aPw").value};
+    if(up){body.name=v("#aName");body.invite=v("#aInv");
+      if(!body.name){toast("Enter your first name");return}
+      if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email)){toast("Enter a valid email");return}
+      if(body.password.length<8){toast("Use at least 8 characters for your password");return}
+      if(!body.invite){toast("Enter your invite code");return}}
+    else if(!body.password){toast("Enter your password");return}
+    const btn=s.querySelector("#aIn");btn.disabled=true;
+    try{const r=await fetch(API()+(up?"/signup":"/login"),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});const j=await r.json().catch(()=>({}));
+      if(!r.ok){btn.disabled=false;toast({wrong_password:"That email and password don't match",bad_invite:"That invite code isn't right",email_taken:"There's already an account with that email. Sign in instead.",bad_email:"Enter a valid email",short_password:"Use at least 8 characters for your password",no_name:"Enter your first name"}[j.error]||"Couldn't sign in. Try again.");return}
+      let old=null;try{old=localStorage.getItem(UIDK)}catch(e){}
+      if(old!==j.user.id){resetLocal()}
+      try{localStorage.setItem(UIDK,j.user.id)}catch(e){}
+      S.me=j.user;setToken(j.token);closeSheet();toast(up?"Welcome, "+j.user.name:"Signed in");await onSignedIn()}
+    catch(e){btn.disabled=false;toast("Couldn't reach the server. Check your connection.")}};
 }
-function signOut(){setToken(null);db=null;sampler=null;assets=null;canImg=false;setSync("local");render();toast("Signed out")}
+function signOut(){setToken(null);db=null;sampler=null;assets=null;canImg=false;resetLocal();try{localStorage.removeItem(UIDK)}catch(e){}setSync("local");render();toast("Signed out")}
 
 /* screenshots: shrink on the phone, read on the server */
 async function shrink(file){
@@ -533,8 +614,144 @@ function renderAccount(){
     '<div class="grid2"><div class="field"><label for="setRemind">Remind me at</label><input id="setRemind" type="time" value="'+esc(S.settings.remindTime||"")+'"></div><div class="field"><span class="lab">Status</span><div class="val">'+(pushOn&&S.settings.remindTime?"On":"Off")+'</div></div></div>'+
     '<div class="btns"><button class="btn small primary" id="pushBtn">'+(pushOn?"Re-connect this phone":"Turn on reminders")+'</button>'+(pushOn?'<button class="btn small" id="pushTest">Send a test</button>':'')+(S.settings.remindTime?'<button class="btn small" id="pushOff">Turn off</button>':'')+'</div></section>';
   h+='<section class="card"><div class="eyebrow">Nightly watch stats</div><div class="small muted">Your iPhone Shortcut sends steps, calories, distance and heart rate here each night. It needs this private link.</div><div class="btns"><button class="btn small" id="tokenBtn">Copy Shortcut link</button></div></section>';
-  h+='<section class="card"><div class="eyebrow">Sync</div><div class="small">This phone is signed in and syncing.</div><div class="btns"><button class="btn small" id="signOutBtn">Sign out</button></div></section>';
+  const me=S.me||{};
+  h+='<section class="card"><div class="eyebrow">Account</div><div class="small">Signed in as <b>'+esc(me.name||(isOwner()?"the owner":"you"))+'</b>'+(me.email?" ("+esc(me.email)+")":"")+'. This phone is syncing.</div>'+
+    (isOwner()&&!me.email?'<div class="small muted">Add an email and password so you can sign in on other devices.</div>':'')+
+    '<div class="btns"><button class="btn small" id="acctBtn">'+(isOwner()&&!me.email?"Add email and password":"Change name, email or password")+'</button><button class="btn small" id="signOutBtn">Sign out</button></div>'+
+    (isOwner()?'':'<div style="padding-top:6px"><button class="btn small ghost" id="delMe">Delete my account</button></div>')+'</section>';
+  h+=membersCard();
   return h;
+}
+
+/* ---------- profile and personalized plan ---------- */
+const HEALTHQ=[
+  ["heart","A doctor has said I have a heart condition or high blood pressure"],
+  ["chest","I get chest pain, or lose my balance from dizziness, when active"],
+  ["joint","I have a bone, joint or muscle problem that running could make worse"],
+  ["meds","I take medicine for a long-term condition"],
+  ["preg","I'm pregnant or gave birth in the last 6 months"]
+];
+function profileFlags(p){return HEALTHQ.filter(q=>p&&p.health&&p.health[q[0]])}
+function planSummary(st){
+  const PP=planParams(st);const P=buildPlan(st);
+  const peak=Math.max(...P.weeks.filter(w=>w.unit==="mi"&&w.w<30).map(w=>w.planned));
+  const lr=Math.max(...P.days.filter(d=>d.kind==="long").map(d=>d.miles||0));
+  return {lvl:PP.lvl,mult:PP.mult,bmi:PP.bmi,peak,lr,first:P.days.find(d=>RUNKINDS[d.kind]),end:P.end};
+}
+function openProfile(first){
+  const st=S.settings,p=st.profile||{};const owner=isOwner();
+  const known=p.knownMax||(owner&&!st.profile?st.maxHr:"");
+  const sel=(id,opts,v)=>'<select id="'+id+'">'+opts.map(o=>'<option value="'+o[0]+'"'+(String(v)===String(o[0])?" selected":"")+'>'+o[1]+'</option>').join("")+'</select>';
+  const lvl=p.level!=null?+p.level:(owner?1:null);
+  const s=openSheet('<div class="eyebrow">'+(first?"Step 2 of 2":"Your profile")+'</div><h2>'+(first?"Build your plan":"Edit your profile")+'</h2>'+
+    '<div class="small muted">Every plan is 30 weeks with a 5K, a half marathon and a marathon. Your answers set your heart rate zones, where you start and how much you run.</div>'+
+    '<div class="grid2"><div class="field"><label for="pAge">Age</label><input id="pAge" type="number" inputmode="numeric" min="14" max="90" value="'+esc(p.age||"")+'"></div><div class="field"><label for="pSex">Sex</label>'+sel("pSex",[["","Choose"],["male","Male"],["female","Female"],["other","Prefer not to say"]],p.sex||"")+'</div></div>'+
+    '<div class="grid2"><div class="field"><label for="pFt">Height (ft)</label><input id="pFt" type="number" inputmode="numeric" min="3" max="8" value="'+esc(p.heightFt||"")+'"></div><div class="field"><label for="pIn">Height (in)</label><input id="pIn" type="number" inputmode="numeric" min="0" max="11" value="'+esc(p.heightIn!=null?p.heightIn:"")+'"></div></div>'+
+    '<div class="field"><label for="pWt">Weight (lb)</label><input id="pWt" type="number" inputmode="decimal" min="70" max="500" value="'+esc(p.weightLb||"")+'"></div>'+
+    '<div class="field"><span class="lab">Where are you now?</span><div class="opts">'+LEVELS.map((L,i)=>'<label class="opt"><input type="radio" name="pLvl" value="'+i+'"'+(lvl===i?" checked":"")+'><span><b>'+L.t+'</b><span class="s">'+L.s+'</span></span></label>').join("")+'</div></div>'+
+    '<div class="grid2"><div class="field"><label for="pMax">Max HR, if you know it</label><input id="pMax" type="number" inputmode="numeric" min="150" max="230" placeholder="Optional" value="'+esc(known||"")+'"></div><div class="field"><label for="pRest">Resting HR</label><input id="pRest" type="number" inputmode="numeric" min="30" max="100" placeholder="Optional" value="'+esc(st.restHr||"")+'"></div></div>'+
+    (first?'<div class="field"><label for="pStart">Start on (a Monday)</label><input id="pStart" type="date" value="'+esc(nextMonday())+'"></div>':'')+
+    '<div class="field"><span class="lab">Health check. Tick any that apply.</span><div class="opts">'+HEALTHQ.map(q=>'<label class="opt"><input type="checkbox" data-hq="'+q[0]+'"'+(p.health&&p.health[q[0]]?" checked":"")+'><span>'+q[1]+'</span></label>').join("")+'</div></div>'+
+    '<div class="btns"><button class="btn primary grow" id="pSave">'+(first?"Create my plan":"Save")+'</button>'+(first?'':'<button class="btn" id="pCancel">Cancel</button>')+'</div>'+
+    '<div class="small muted">This plan is general training guidance, not medical advice.</div>');
+  const c=s.querySelector("#pCancel");if(c)c.onclick=closeSheet;
+  s.querySelector("#pSave").onclick=()=>{
+    const g=id=>s.querySelector(id).value.trim();
+    const age=parseInt(g("#pAge"),10),sex=g("#pSex"),ft=parseInt(g("#pFt"),10),inch=parseInt(g("#pIn")||"0",10),wt=parseFloat(g("#pWt"));
+    const lv=s.querySelector('input[name=pLvl]:checked');
+    if(!(age>=14&&age<=90)){toast("Enter your age");return}
+    if(!sex){toast("Choose an option for sex");return}
+    if(!(ft>=3&&ft<=8)||!(inch>=0&&inch<=11)){toast("Enter your height");return}
+    if(!(wt>=70&&wt<=500)){toast("Enter your weight in pounds");return}
+    if(!lv){toast("Pick where you are now");return}
+    const km=parseInt(g("#pMax"),10),rest=parseInt(g("#pRest"),10);
+    const health={};s.querySelectorAll("[data-hq]").forEach(x=>{if(x.checked)health[x.dataset.hq]=true});
+    const prof={age,sex,heightFt:ft,heightIn:inch,weightLb:Math.round(wt),level:+lv.value,knownMax:km>=150&&km<=230?km:null,health,updatedAt:Date.now()};
+    const patch={profile:prof,maxHr:prof.knownMax||estMaxHr(prof),restHr:rest>=30&&rest<=100?rest:null};
+    if(first){const sd=g("#pStart");patch.startDate=sd?mondayOnOrAfter(sd):nextMonday();patch.repeats=[]}
+    closeSheet();writeSettings(patch);
+    showPlanReady(first);
+  };
+}
+function showPlanReady(first){
+  const sm=planSummary(S.settings),flags=profileFlags(S.settings.profile);const Z=zones(S.settings.maxHr);
+  const s=openSheet('<div class="eyebrow">'+(first?"You're set":"Plan updated")+'</div><h2>Your 30 weeks</h2>'+
+    (flags.length?'<div class="coach bad"><div class="small"><b>Check with your doctor before you start.</b> You ticked: '+esc(flags.map(f=>f[1]).join("; "))+'. Show them this plan and ask what\'s safe for you.</div></div>':'')+
+    '<div class="list small">'+[
+      ["Starting point",LEVELS[sm.lvl].t+" · first run "+nice(sm.first.date,{dow:1})],
+      ["Heart rate zones","Max "+S.settings.maxHr+" bpm"+(S.settings.profile&&S.settings.profile.knownMax?"":" (estimated from age)")+". Zone 2 is "+Z.z2[0]+" to "+Z.z2[1]+"."],
+      ["Volume","Peaks at "+sm.peak+" mi a week, longest run "+sm.lr+" mi"],
+      ["Races","5K "+nice(PLAN.milestones[0].date)+" · half "+nice(PLAN.milestones[1].date)+" · marathon "+nice(PLAN.milestones[2].date,{year:1})]
+    ].map(r=>'<div class="li"><span class="meta"><span class="t">'+r[0]+'</span><span class="s">'+esc(r[1])+'</span></span></div>').join("")+'</div>'+
+    '<div class="small muted">Most runs are slow, in Zone 2. That\'s on purpose. If a week feels too hard, repeat it from Settings.</div>'+
+    '<div class="btns"><button class="btn primary grow" id="rOk">'+(first?"See today":"Done")+'</button></div>');
+  s.querySelector("#rOk").onclick=()=>{closeSheet();if(first){tab="today";render();window.scrollTo(0,0)}};
+}
+function profileCard(){
+  const st=S.settings,p=st.profile;
+  if(!p)return '<section class="card"><div class="eyebrow">Your profile</div><div class="small muted">'+(db?"Add your age, height, weight and fitness so your heart rate zones and mileage fit you. "+(isOwner()?"Your current plan is the Run-walk level.":""):"Sign in to set up your own plan.")+'</div>'+(db?'<div class="btns"><button class="btn small primary" id="profBtn">Add your profile</button></div>':'')+'</section>';
+  const sm=planSummary(st),flags=profileFlags(p);
+  const sex={male:"Male",female:"Female",other:""}[p.sex]||"";
+  return '<section class="card"><div class="eyebrow">Your profile</div>'+
+    '<div class="small">'+[p.age+" yrs",sex,p.heightFt+"′"+p.heightIn+"″",p.weightLb+" lb",sm.bmi?"BMI "+sm.bmi:""].filter(Boolean).map(esc).join(" · ")+'</div>'+
+    '<div class="small muted">'+esc(LEVELS[sm.lvl].t)+' plan · peaks at '+sm.peak+' mi a week, longest run '+sm.lr+' mi.</div>'+
+    (flags.length?'<div class="small" style="color:var(--bad)">Check with your doctor before hard training (you ticked a health question).</div>':'')+
+    '<div class="btns"><button class="btn small" id="profBtn">Edit profile</button></div></section>';
+}
+function openAccountEdit(){
+  const me=S.me||{};
+  const s=openSheet('<div class="eyebrow">Account</div><h2>Your sign-in</h2>'+
+    (isOwner()&&!me.email?'<div class="small muted">Add an email and password so you can sign in on any device with them. Your original app password keeps working too.</div>':'')+
+    '<div class="field"><label for="eName">First name</label><input id="eName" maxlength="60" value="'+esc(me.name||"")+'"></div>'+
+    '<div class="field"><label for="eEmail">Email</label><input id="eEmail" type="email" autocapitalize="off" spellcheck="false" value="'+esc(me.email||"")+'"></div>'+
+    '<div class="field"><label for="ePw">New password</label><input id="ePw" type="password" autocomplete="new-password" placeholder="'+(me.email?"Leave blank to keep it":"8+ characters")+'"></div>'+
+    '<div class="btns"><button class="btn primary grow" id="eSave">Save</button><button class="btn" id="eCancel">Cancel</button></div>');
+  s.querySelector("#eCancel").onclick=closeSheet;
+  s.querySelector("#eSave").onclick=async()=>{
+    const body={};const n=s.querySelector("#eName").value.trim(),e=s.querySelector("#eEmail").value.trim(),pw=s.querySelector("#ePw").value;
+    if(n&&n!==me.name)body.name=n;if(e&&e!==me.email)body.email=e;if(pw)body.password=pw;
+    if(!me.email&&e&&!pw){toast("Choose a password too");return}
+    if(pw&&pw.length<8){toast("Use at least 8 characters");return}
+    if(!Object.keys(body).length){closeSheet();return}
+    try{const r=await call("/me",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});const j=await r.json().catch(()=>({}));
+      if(!r.ok){toast({email_taken:"Another account uses that email",bad_email:"Enter a valid email",short_password:"Use at least 8 characters"}[j.error]||"Couldn't save");return}
+      S.me=j.user;closeSheet();render();toast("Saved")}catch(e){toast("Couldn't reach the server")}};
+}
+async function loadAdmin(){
+  if(!isOwner()||loadAdmin.busy)return;loadAdmin.busy=true;
+  try{const r=await call("/admin");if(r.ok){S.admin=await r.json();S.adminAt=Date.now();if(tab==="more")render()}}catch(e){}
+  loadAdmin.busy=false;
+}
+function inviteText(){return "Join me on Stride Log, a 30-week marathon plan that fits you. Open "+location.origin+location.pathname+" on your iPhone in Safari, tap New account, and use invite code "+(S.admin&&S.admin.invite)+"."}
+function membersCard(){
+  if(!isOwner())return "";
+  const a=S.admin;
+  if(!a)return '<section class="card"><div class="eyebrow">Members</div><div class="small muted">Loading…</div></section>';
+  const ago=t=>{if(!t)return "never";const d=Math.floor((Date.now()-t)/864e5);return d<=0?"today":d===1?"yesterday":d+" days ago"};
+  return '<section class="card"><div class="eyebrow">Invite people</div><div class="row"><span class="code">'+esc(a.invite)+'</span><button class="btn small" id="invNew">New code</button></div>'+
+    '<div class="small muted">Anyone with this code can create an account. Making a new code stops the old one working. Existing members aren\'t affected.</div>'+
+    '<div class="btns"><button class="btn small primary" id="invCopy">Copy invite message</button></div></section>'+
+    '<section class="card"><div class="eyebrow">Members · '+a.users.length+'</div><div>'+a.users.map(u=>'<div class="mem"><span class="meta"><b>'+esc(u.name||(u.role==="owner"?"You":"No name"))+(u.role==="owner"?' <span class="chip">You</span>':'')+'</b><span class="s">'+esc(u.email||"No email yet")+'</span><span class="s">Joined '+esc(nice(fmt(new Date(u.created_at))))+' · active '+ago(u.seen_at)+' · '+u.logs+' days logged</span></span>'+
+      (u.role==="owner"?'':'<span class="btns" style="flex-direction:column;gap:6px;margin:0"><button class="btn small" data-mreset="'+esc(u.id)+'">Reset password</button><button class="btn small ghost" data-mdel="'+esc(u.id)+'">Remove</button></span>')+'</div>').join("")+'</div>'+
+    '<div class="small muted">Screenshot reading uses your Anthropic credit. Each member can read up to 20 a day.</div></section>';
+}
+async function adminAct(kind,id){
+  const u=S.admin&&S.admin.users.find(x=>x.id===id);const nm=u?(u.name||u.email):"this member";
+  if(kind==="del"){if(!confirm("Remove "+nm+"? Their account, log and watch data are deleted for good."))return;
+    const r=await call("/admin/users/"+encodeURIComponent(id),{method:"DELETE"});toast(r.ok?"Removed":"Couldn't remove");loadAdmin();return}
+  if(kind==="reset"){if(!confirm("Make a temporary password for "+nm+"? Their old password stops working."))return;
+    const r=await call("/admin/users/"+encodeURIComponent(id)+"/reset",{method:"POST"});const j=await r.json().catch(()=>({}));
+    if(!r.ok){toast("Couldn't reset");return}
+    const s=openSheet('<div class="eyebrow">Temporary password</div><h2>'+esc(nm)+'</h2><div class="code" style="user-select:all">'+esc(j.password)+'</div><div class="small muted">Send this to them. They can sign in with it and choose a new password in Settings.</div><div class="btns"><button class="btn primary grow" id="tpClose">Done</button></div>');
+    s.querySelector("#tpClose").onclick=closeSheet}
+  if(kind==="newcode"){if(!confirm("Make a new invite code? The current one stops working."))return;
+    const r=await call("/admin/invite",{method:"POST"});if(r.ok){S.admin.invite=(await r.json()).invite;render();toast("New code ready")}}
+  if(kind==="copy"){const t=inviteText();try{await navigator.clipboard.writeText(t);toast("Invite copied. Paste it into a message.")}catch(e){const s=openSheet('<h2>Invite</h2><div class="small" style="user-select:all">'+esc(t)+'</div><div class="btns"><button class="btn" id="ivClose">Close</button></div>');s.querySelector("#ivClose").onclick=closeSheet}}
+}
+async function deleteMe(){
+  if(!confirm("Delete your account? Your log, watch data and plan are deleted for good."))return;
+  const r=await call("/me",{method:"DELETE"});if(!r.ok){toast("Couldn't delete");return}
+  signOut();toast("Account deleted");
 }
 
 /* ---------- analytics ---------- */
@@ -647,6 +864,8 @@ function toggleTodo(date,k,on){
   if(n===items.length&&on)toast(d.kind==="rest"?"Rest day done":"All done. Nice work!");
 }
 function renderToday(){
+  if(db&&S.me&&!isOwner()&&!S.settings.profile)return '<section class="card"><div class="eyebrow">Welcome'+(S.me.name?", "+esc(S.me.name):"")+'</div><h2 style="font:700 26px/1.1 var(--display);text-transform:uppercase">Let\'s build your plan</h2><div class="small muted">A few questions about you and your running, and you\'ll get a 30-week plan with your own heart rate zones.</div><div class="btns"><button class="btn primary grow" id="profStart">Start</button></div></section>';
+  if(!db&&CFG.apiUrl&&!tok)return '<section class="card"><div class="eyebrow">Stride Log</div><h2 style="font:700 26px/1.1 var(--display);text-transform:uppercase">30 weeks to a marathon</h2><div class="small muted">Sign in, or create an account with your invite code, to get a plan built for you.</div><div class="btns"><button class="btn primary grow" id="signInBtn">Sign in</button><button class="btn grow" id="signUpBtn">New account</button></div></section>';
   const today=todayStr();const start=PLAN.days[0].date;let h=countdownHero(today);
   if(today<start){
     const wk=PLAN.weeks[0];
@@ -832,7 +1051,7 @@ function hrChart(today,Z){
 }
 function renderMore(){
   const Z=zones(S.settings.maxHr);const s=S.settings;
-  let h='<section class="card"><div class="eyebrow">Your plan</div><div class="grid2"><div class="field"><label for="setStart">Plan start (a Monday)</label><input id="setStart" type="date" value="'+esc(s.startDate)+'"></div><div class="field"><span class="lab">Race day</span><div class="val">'+nice(PLAN.end,{dow:1,year:1})+'</div></div></div>'+
+  let h=profileCard()+'<section class="card"><div class="eyebrow">Your plan</div><div class="grid2"><div class="field"><label for="setStart">Plan start (a Monday)</label><input id="setStart" type="date" value="'+esc(s.startDate)+'"></div><div class="field"><span class="lab">Race day</span><div class="val">'+nice(PLAN.end,{dow:1,year:1})+'</div></div></div>'+
     ((s.repeats||[]).length?'<div class="small muted">Repeated weeks: '+s.repeats.join(", ")+'. Each repeat moves race day back a week. The plan has room for about two.</div>':'<div class="small muted">If a week feels hard, repeat it here. Each repeat moves race day back a week.</div>')+
     '<div class="btns"><button class="btn small" id="repeatCur">Repeat current week</button></div></section>';
   h+='<section class="card"><div class="eyebrow">Heart rate</div><div class="grid2"><div class="field"><label for="setMax">Max HR (bpm)</label><input id="setMax" type="number" inputmode="numeric" min="150" max="230" value="'+esc(s.maxHr)+'"></div><div class="field"><label for="setRest">Resting HR (bpm)</label><input id="setRest" type="number" inputmode="numeric" min="30" max="100" placeholder="Optional" value="'+esc(s.restHr||"")+'"></div></div>'+
@@ -848,6 +1067,7 @@ function render(){
   const app=$("#app");let h="";
   try{h=tab==="today"?renderToday():tab==="history"?renderHistory():tab==="progress"?renderProgress():renderMore()}catch(e){h='<div class="card">Something went wrong drawing this screen: '+esc(e.message)+'</div>'}
   app.innerHTML=h;
+  if(tab==="more"&&isOwner()&&(!S.admin||Date.now()-(S.adminAt||0)>30000))loadAdmin();
   document.querySelectorAll(".tab").forEach(b=>b.setAttribute("aria-current",b.dataset.tab===tab?"page":"false"));
 }
 
@@ -1005,6 +1225,15 @@ document.addEventListener("click",e=>{
   if(t.id==="repeatCur"){const cw=currentWeek(todayStr());if(cw)repeatWeek(cw.w);else toast("The plan hasn't started yet");return}
   if(t.id==="exportBtn"){exportData();return}
   if(t.id==="signInBtn"){showSignIn();return}
+  if(t.id==="signUpBtn"){showSignIn(null,"up");return}
+  if(t.id==="profBtn"){openProfile(false);return}
+  if(t.id==="profStart"){openProfile(true);return}
+  if(t.id==="acctBtn"){openAccountEdit();return}
+  if(t.id==="delMe"){deleteMe();return}
+  if(t.id==="invNew"){adminAct("newcode");return}
+  if(t.id==="invCopy"){adminAct("copy");return}
+  if(t.dataset.mreset){adminAct("reset",t.dataset.mreset);return}
+  if(t.dataset.mdel){adminAct("del",t.dataset.mdel);return}
   if(t.id==="signOutBtn"){signOut();return}
   if(t.id==="pushBtn"){enablePush();return}
   if(t.id==="pushTest"){testPush();return}
